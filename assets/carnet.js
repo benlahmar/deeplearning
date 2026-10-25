@@ -79,7 +79,7 @@ document.addEventListener('DOMContentLoaded',()=>{renderMath();const id=decodeUR
 // ---------- Outils pour les figures des pages ----------
 const NS='http://www.w3.org/2000/svg';
 function el(tag,attrs={},parent){const n=document.createElementNS(NS,tag);for(const k in attrs)n.setAttribute(k,attrs[k]);if(parent)parent.append(n);return n}
-function text(parent,x,y,str,cls='tick',extra={}){const e=Object.assign({},extra);if(e.fill){e.style=`fill:${e.fill}`;delete e.fill}const t=el('text',Object.assign({x,y,class:cls},e),parent);t.textContent=str;return t}
+function text(parent,x,y,str,cls='tick',extra={}){const e=Object.assign({},extra),st=[];if(e.fill){st.push(`fill:${e.fill}`);delete e.fill}if(e['text-anchor']){st.push(`text-anchor:${e['text-anchor']}`);delete e['text-anchor']}if(st.length)e.style=st.join(';');const t=el('text',Object.assign({x,y,class:cls},e),parent);t.textContent=str;return t}
 function rng(seed){let s=seed>>>0||1;return()=>{s=(1664525*s+1013904223)>>>0;return(s+.5)/4294967296}}
 function gauss(r){return()=>{const u=r(),v=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}}
 function softmax(v){const m=Math.max(...v.filter(Number.isFinite));const e=v.map(x=>Number.isFinite(x)?Math.exp(x-m):0);const s=e.reduce((a,b)=>a+b,0);return e.map(x=>s>0?x/s:NaN)}
