@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chapitre 6 — Préentraînement, transfert et efficacité</title>
+<meta name="description" content="Deep Learning avancé, M2 IA — Chapitre 6 : objectifs de préentraînement, lois d’échelle, transfert, LoRA, mémoire, précision numérique, quantification et distillation.">
+<link rel="stylesheet" href="assets/katex/katex.min.css">
+<link rel="stylesheet" href="assets/carnet.css">
+<noscript><style>html,body{height:auto;overflow:visible}body{display:block}#chapters,.chapter{display:block;height:auto}.rail{width:100%;height:auto;flex-direction:row;justify-content:flex-start;gap:15px;padding:15px 20px;cursor:default}.rail-word{writing-mode:horizontal-tb;transform:none}.rail-symbol,.toolbar,.status-line,.banner-toggle{display:none}.content{height:auto;overflow:visible}</style></noscript>
+<script defer src="assets/katex/katex.min.js"></script>
+<script defer src="assets/katex/contrib/auto-render.min.js"></script>
+</head>
+<body data-page="ch6">
+<a class="skip" href="#chapters">Aller au contenu</a>
+<header class="top"><div class="brand"><strong>Le carnet / Deep Learning</strong><span>Chapitre 6 · Préentraînement, transfert et efficacité</span><span class="stamp">M2 · 4 h</span></div></header>
+<main>
+<div class="toolbar" aria-label="Outils de lecture"><a class="nav-link" href="index.html">← Accueil</a><a class="nav-link" href="Chapitre_5_Transformers.html">← Ch. 5</a><a class="nav-link" href="Chapitre_7_SSL_JEPA.html">Ch. 7 →</a><button id="prefs" aria-expanded="false" aria-controls="settings">Aa<span class="long"> · Confort de lecture</span></button><button id="focus" aria-pressed="false">Lecture concentrée</button><div class="progress-box end"><span id="progressText" aria-live="polite">0 / 3 repères validés</span><div class="progress" aria-hidden="true"><span id="bar"></span></div></div><button id="print">Imprimer</button></div>
+<div class="settings" id="settings" hidden><label>Apparence <select id="theme"><option value="">Papier</option><option value="dark">Nuit</option><option value="contrast">Contraste renforcé</option></select></label><label>Taille <select id="size"><option value="18">Standard</option><option value="20">Grande</option><option value="23">Très grande</option></select></label><label><input type="checkbox" id="airy"> Interligne ample</label><label><input type="checkbox" id="sans"> Titres sans empattements</label><label><input type="checkbox" id="animate" checked> Animations</label></div>
+<div class="status-line"><span>Chapitre 6 · Cours, démonstrations et ateliers</span><span id="readingStatus" aria-live="polite">Cours · début de lecture</span></div>
+<div id="chapters">
+
+<!-- ============================== COURS ============================== -->
+<section class="chapter" id="cours"><button type="button" class="rail" id="rail-0" aria-controls="panel-0" aria-expanded="true"><span class="num">01</span><span class="rail-word">Cours</span><span class="rail-symbol" aria-hidden="true">+</span></button>
+<div class="content" id="panel-0" role="region" aria-labelledby="rail-0">
+<div class="section-banner"><div class="banner-copy"><div class="tag">Comprendre</div><strong>Apprendre une fois, adapter souvent.</strong><p>Le préentraînement paie le coût ; l’adaptation doit rester sobre.</p><button type="button" class="banner-toggle" aria-pressed="false">Mettre l’animation en pause</button></div>
+<div class="banner-art" aria-hidden="true"><svg viewBox="0 0 270 135"><path class="wire" d="M20 100H110M110 100L170 40M110 100L170 70M110 100L170 100M110 100L170 130"/><path class="signal" d="M20 100H110L170 40"/><g class="node"><circle cx="20" cy="100" r="7"/><circle cx="110" cy="100" r="14"/><circle cx="170" cy="40" r="6"/><circle cx="170" cy="70" r="6"/><circle cx="170" cy="100" r="6"/><circle cx="170" cy="130" r="6"/></g><text class="svgtext" x="110" y="78">θ₀</text><text class="svgtext" x="215" y="75">tâches</text></svg></div></div>
+<article class="reading">
+<div class="chapter-intro"><div class="tag">Chapitre 6 / Préentraînement, transfert et efficacité</div><h3>Comment réutiliser un modèle, et à quel coût ?</h3>
+<p>Les modèles les plus utiles sont rarement entraînés pour la tâche finale. Ils apprennent d’abord, sur de grandes quantités de données sans étiquettes, un objectif générique — prédire le jeton suivant, reconstruire une partie masquée — puis sont adaptés à des tâches précises avec peu d’exemples. Ce chapitre étudie les deux moitiés de ce contrat : ce que le préentraînement apprend et comment le dimensionner ; puis comment l’adapter quand la mémoire, le calcul et les données étiquetées sont comptés.</p>
+<p><strong>Organisation : 4 h</strong> — 2 h de cours, 1 h de TD, 1 h d’atelier encadré ; les ateliers 3 et les prolongements se font en autonomie. <strong>Prérequis :</strong> Transformers (ch. 5), AdamW et précision des calculs (ch. 1 et 2), protocoles d’évaluation (ch. 3).</p>
+<div class="callout"><div class="tag">À la fin du chapitre</div><p>Vous saurez comparer les objectifs de préentraînement, raisonner avec une loi d’échelle et ses limites, choisir entre sonde linéaire, ajustement complet et LoRA, établir un budget mémoire d’entraînement, expliquer les formats flottants et la quantification, et évaluer un transfert sans vous laisser tromper par la contamination des données.</p></div></div>
+<nav class="toc" aria-label="Sections du cours"><a href="#c1">6.1 · Pourquoi préentraîner</a><a href="#c2">6.2 · Objectifs</a><a href="#c3">6.3 · Lois d’échelle</a><a href="#c4">6.4 · Stratégies de transfert</a><a href="#c5">6.5 · LoRA et adaptations</a><a href="#c6">6.6 · Mémoire</a><a href="#c7">6.7 · Précision et quantification</a><a href="#c8">6.8 · Distillation et élagage</a><a href="#c9">6.9 · Évaluer un transfert</a><a href="#c10">6.10 · Décider</a></nav>
+
+<section id="c1"><div class="tag">Cours / 6.1</div><h3>Pourquoi préentraîner ?</h3>
+<p>Une tâche supervisée dispose souvent de quelques centaines ou milliers d’exemples ; le texte, les images ou les signaux bruts se comptent en milliards. Le préentraînement exploite cette asymétrie : un objectif <strong>auto-supervisé</strong> fabrique ses propres cibles à partir des données, et force le modèle à construire des représentations qui expliquent leur structure. Si la tâche finale dépend de cette structure, elle devient plus facile à apprendre à partir de ces représentations.</p>
+<figure class="fig" id="fig-pipeline"><svg viewBox="0 0 640 190" role="img" aria-labelledby="fpT fpD"><title id="fpT">Préentraîner puis adapter</title><desc id="fpD">Des données massives non étiquetées entraînent un modèle de base, adapté ensuite à plusieurs tâches avec peu d’exemples étiquetés.</desc>
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="f-m"/></marker></defs>
+<rect x="10" y="60" width="140" height="70" rx="8" class="box"/><text x="80" y="85" class="lbl">données brutes</text><text x="80" y="105" class="lbl-s">10⁹ à 10¹³ jetons</text><text x="80" y="120" class="lbl-s">sans étiquette</text>
+<path d="M150 95H200" class="arrow"/><text x="175" y="82" class="lbl-s">coût élevé</text>
+<rect x="202" y="55" width="130" height="80" rx="8" class="box-a"/><text x="267" y="85" class="lbl">modèle de base</text><text x="267" y="106" class="lbl-m">θ₀</text>
+<path d="M332 95Q380 40 430 35M332 95H430M332 95Q380 150 430 155" class="arrow"/><text x="378" y="128" class="lbl-s">coût faible</text>
+<rect x="432" y="18" width="190" height="34" rx="6" class="box-c"/><text x="527" y="35" class="lbl">classification · 64 exemples</text>
+<rect x="432" y="78" width="190" height="34" rx="6" class="box-c"/><text x="527" y="95" class="lbl">extraction · 500 exemples</text>
+<rect x="432" y="138" width="190" height="34" rx="6" class="box-c"/><text x="527" y="155" class="lbl">dialogue · instructions</text></svg>
+<figcaption><b>Fig. 6.1 —</b> Le préentraînement est payé une fois et amorti sur de nombreuses tâches. L’atelier reproduit ce schéma en miniature : un petit modèle de langage préentraîné sur 20 000 séquences sans étiquette, puis adapté avec 64 exemples étiquetés.</figcaption></figure>
+<p>Trois questions guident le chapitre : <strong>quel objectif</strong> donne des représentations utiles ; <strong>combien de calcul et de données</strong> y consacrer ; <strong>comment adapter</strong> le modèle à moindre coût, sans détruire ce qu’il a appris.</p>
+</section>
+
+<section id="c2"><div class="tag">Cours / 6.2</div><h3>Objectifs de préentraînement.</h3>
+<figure class="fig" id="fig-objectives"><svg id="objPlot" viewBox="0 0 640 250" role="img" aria-label="Trois objectifs de préentraînement sur la même phrase : causal, masqué, corruption de segments"></svg>
+<figcaption><b>Fig. 6.2 —</b> Trois façons de fabriquer une cible à partir de la phrase elle-même. En bleu, les jetons visibles ; en ocre, ceux à prédire. Le modèle causal apprend sur <em>chaque</em> position ; le modèle masqué sur environ 15 % d’entre elles, mais avec un contexte bidirectionnel.</figcaption></figure>
+<ul><li><strong>Modèle de langage causal</strong> (GPT) : maximiser \(\sum_t \log p_\theta(x_t\mid x_{&lt;t})\). Chaque jeton fournit un signal ; le modèle sait générer. Sa perte se lit en <em>perplexité</em> \(e^{L}\), le nombre effectif de choix équiprobables.</li><li><strong>Modèle masqué</strong> (BERT, Devlin et al., 2019) : masquer 15 % des jetons — dont 80 % remplacés par [MASK], 10 % par un jeton aléatoire, 10 % inchangés pour que le modèle ne compte pas sur la présence de [MASK] — et les reconstruire avec un contexte bidirectionnel. Excellent pour la compréhension, moins naturel pour la génération.</li><li><strong>Corruption de segments</strong> (T5, Raffel et al., 2020) : remplacer des segments (longueur moyenne 3, 15 % des jetons) par des sentinelles et les régénérer avec un encodeur-décodeur. ELECTRA (Clark et al., 2020) apprend plutôt à <em>détecter</em> les jetons remplacés, ce qui exploite toutes les positions.</li><li><strong>Objectifs contrastifs</strong> (CLIP, Radford et al., 2021) : rapprocher les représentations d’une image et de sa légende, éloigner les autres paires. C’est le point de départ du chapitre 7.</li></ul>
+<div class="callout"><div class="tag">La tokenisation fait partie du modèle</div><p>Les modèles de langage opèrent sur des sous-mots (BPE, Sennrich et al., 2016 ; unigram). La taille du vocabulaire fixe la longueur des séquences, le coût des matrices d’embedding et de sortie, et peut pénaliser des langues ou des domaines sous-représentés. Une perte par jeton ne se compare qu’entre modèles de même tokeniseur ; sinon, comparer en bits par octet ou par caractère.</p></div>
+</section>
+
+<section id="c3"><div class="tag">Cours / 6.3</div><h3>Lois d’échelle : dimensionner avant d’entraîner.</h3>
+<p>Kaplan et al. (2020) observent que la perte de test d’un modèle de langage décroît en loi de puissance avec le nombre de paramètres \(N\), de jetons \(D\) et le calcul \(C\), sur plusieurs ordres de grandeur. Hoffmann et al. (2022, « Chinchilla ») ajustent une forme paramétrique :</p>
+<div class="formula">\[L(N,D)=E+\frac{A}{N^{\alpha}}+\frac{B}{D^{\beta}},\qquad C\approx 6ND\]</div>
+<p>\(E\) est la perte irréductible (l’entropie du texte), les deux autres termes les pénalités d’un modèle trop petit et d’un entraînement trop court. À budget \(C\) fixé, minimiser \(L\) sous la contrainte \(6ND=C\) donne \(N^\*\propto C^{\beta/(\alpha+\beta)}\) et \(D^\*\propto C^{\alpha/(\alpha+\beta)}\) (TD, exercice 2). Les analyses de Hoffmann et al. concluent à des exposants proches de \(0{,}5\) : doubler le calcul, c’est augmenter <em>à parts égales</em> modèle et données, avec environ <strong>20 jetons par paramètre</strong>. Les modèles de l’époque étaient donc sous-entraînés : Chinchilla (70 milliards de paramètres, 1,4 billion de jetons) surpassait Gopher (280 milliards) à calcul égal.</p>
+<div class="lab" id="lab-scaling"><div class="labhead"><strong>Laboratoire · Le compromis taille / données à calcul fixé</strong><span>Figure interactive</span></div>
+<svg id="scalingPlot" viewBox="0 0 640 300" role="img" aria-label="Perte prédite en fonction du nombre de paramètres pour plusieurs budgets de calcul"></svg>
+<div class="controls"><label for="sC">Budget de calcul C</label><input id="sC" type="range" min="18" max="25" step="0.1" value="22"><output id="sCOut" for="sC"></output></div>
+<div class="kpis" id="sKpis"></div>
+<p class="caption"><b>À observer.</b> Chaque courbe est un budget fixé : à gauche, le modèle est trop petit ; à droite, il voit trop peu de données. Le point marque l’optimum. Constantes de l’ajustement paramétrique de Hoffmann et al. (\(E=1{,}69\), \(A=406{,}4\), \(B=410{,}7\), \(\alpha=0{,}34\), \(\beta=0{,}28\)) ; une réplication (Besiroglu et al., 2024) a corrigé ces valeurs et retrouve des exposants plus proches de \(0{,}5\). Prenez les chiffres comme un ordre de grandeur.</p></div>
+<div class="callout"><div class="tag">Ce qu’une loi d’échelle ne dit pas</div><p>(1) L’optimum « Chinchilla » minimise le coût d’<em>entraînement</em>. Un modèle servi des milliards de fois coûte surtout en inférence : on entraîne alors délibérément des modèles plus petits sur bien plus de jetons (Llama, Touvron et al., 2023 ; Sardana et Frankle, 2023). (2) La perte moyenne n’est pas une capacité : certaines aptitudes semblent « émerger » brusquement avec la taille (Wei et al., 2022), mais une partie de ces sauts tient au choix de métriques discontinues (Schaeffer et al., 2023). (3) Les données de qualité finissent par manquer ; répéter un corpus a un rendement décroissant (Muennighoff et al., 2023).</p></div>
+</section>
+
+<section id="c4"><div class="tag">Cours / 6.4</div><h3>Stratégies de transfert : que faut-il entraîner ?</h3>
+<p>Partons d’un modèle préentraîné \(\theta_0\) et d’une tâche avec \(n\) exemples. Les stratégies se rangent selon la part de paramètres mise à jour :</p>
+<div class="table-scroll"><table><thead><tr><th>Stratégie</th><th>Paramètres entraînés</th><th>Atouts</th><th>Risques</th></tr></thead><tbody>
+<tr><td>Sonde linéaire (<em>linear probe</em>)</td><td>une tête : \(d\times K\)</td><td>Rapide, peu de surapprentissage, ne modifie rien</td><td>Plafonnée par la représentation gelée</td></tr>
+<tr><td>Ajustement partiel</td><td>dernières couches + tête</td><td>Compromis classique en vision</td><td>Choix des couches arbitraire</td></tr>
+<tr><td>Adaptation efficace (LoRA, adaptateurs)</td><td>0,1 à 1 % de \(\theta\)</td><td>Mémoire réduite, un modèle de base pour plusieurs tâches</td><td>Rang et emplacement à choisir</td></tr>
+<tr><td>Ajustement complet (<em>fine-tuning</em>)</td><td>tout \(\theta\)</td><td>Plus expressif quand les données abondent</td><td>Mémoire, surapprentissage, oubli</td></tr></tbody></table></div>
+<p><strong>Distorsion des représentations.</strong> Kumar et al. (2022) montrent qu’ajuster tout le modèle avec une tête initialisée au hasard peut <em>déformer</em> les représentations préentraînées : les premiers gradients, guidés par une tête arbitraire, modifient le tronc uniquement dans les directions couvertes par les données d’entraînement (TD, exercice 6). Le modèle peut alors mieux faire en distribution, mais moins bien hors distribution. Remède simple : <strong>LP-FT</strong>, entraîner d’abord la sonde linéaire, puis ajuster le tout à partir de cette tête.</p>
+<p><strong>Oubli catastrophique.</strong> Ajuster \(\theta\) sur une tâche étroite dégrade ce que le modèle savait faire. On peut le limiter par un petit pas, un arrêt anticipé, une régularisation vers \(\theta_0\) (\(\lambda\|\theta-\theta_0\|^2\), « L2-SP », Li et al., 2018 — l’a priori MAP du chapitre 3, recentré sur \(\theta_0\)), ou en ne touchant pas \(\theta_0\) du tout, comme le font LoRA et les adaptateurs.</p>
+<div class="callout"><div class="tag">Ce que montre l’atelier</div><p>Avec 64 exemples, une sonde de 260 paramètres atteint 97,8 % là où l’ajustement complet de 105 500 paramètres plafonne à 94,4 %. Avec 1 024 exemples, les écarts disparaissent. Il n’existe pas de meilleure stratégie absolue : la bonne dépend de \(n\), de la distance entre tâches et du budget.</p></div>
+</section>
+
+<section id="c5"><div class="tag">Cours / 6.5</div><h3>LoRA et les adaptations à faible coût.</h3>
+<p>Hypothèse de départ (Aghajanyan et al., 2021) : l’adaptation d’un grand modèle préentraîné a une faible <em>dimension intrinsèque</em> ; une mise à jour de bas rang devrait suffire. LoRA (Hu et al., 2022) gèle \(W_0\in\mathbb{R}^{d\times k}\) et apprend un terme additif de rang \(r\ll\min(d,k)\) :</p>
+<div class="formula">\[W=W_0+\frac{\alpha}{r}\,BA,\qquad B\in\mathbb{R}^{d\times r},\ A\in\mathbb{R}^{r\times k},\qquad B_{\text{init}}=0\]</div>
+<figure class="fig" id="fig-lora"><svg id="loraFig" viewBox="0 0 640 230" role="img" aria-label="Décomposition LoRA : une grande matrice gelée plus le produit de deux matrices étroites"></svg>
+<figcaption><b>Fig. 6.3 —</b> \(W_0\) reste gelée (cadenas) ; seules \(B\) et \(A\) sont entraînées. Avec \(B=0\) à l’initialisation, le modèle adapté part <em>exactement</em> du modèle préentraîné. Après entraînement, \(W_0+\tfrac{\alpha}{r}BA\) se fusionne en une seule matrice : aucune latence supplémentaire en inférence.</figcaption></figure>
+<div class="lab" id="lab-lora"><div class="labhead"><strong>Laboratoire · Combien coûte un adaptateur ?</strong><span>Calculateur</span></div>
+<div class="controls"><label for="lD">Largeur d</label><select id="lD"><option>768</option><option>2048</option><option selected>4096</option><option>8192</option></select><label for="lL">Couches</label><select id="lL"><option>12</option><option selected>32</option><option>80</option></select><label for="lR">Rang r</label><input id="lR" type="range" min="0" max="8" step="1" value="3"><output id="lROut" for="lR"></output></div>
+<div class="controls"><label><input type="checkbox" id="lAttn" checked> Projections Q, K, V, O</label><label><input type="checkbox" id="lFfn"> Couches denses (FFN)</label></div>
+<div class="kpis" id="lKpis"></div>
+<p class="caption"><b>Hypothèses.</b> Modèle de type Llama sans couplage des embeddings, FFN de largeur \(\tfrac{8}{3}d\) à porte (trois matrices). Les paramètres totaux comptent les blocs seulement. L’état d’Adam (deux moments en 32 bits) ne concerne que les paramètres entraînés.</p></div>
+<ul><li><strong>Adaptateurs</strong> (Houlsby et al., 2019) : petits MLP en goulot insérés dans chaque bloc. Efficaces, mais ajoutent une latence en inférence.</li><li><strong><em>Prefix</em> et <em>prompt tuning</em></strong> (Li et Liang, 2021 ; Lester et al., 2021) : apprendre des vecteurs ajoutés en tête de séquence. Très peu de paramètres ; l’écart avec l’ajustement complet se réduit quand le modèle grandit.</li><li><strong>QLoRA</strong> (Dettmers et al., 2023) : base quantifiée sur 4 bits (format NF4), adaptateurs LoRA en 16 bits ; un modèle de 65 milliards de paramètres s’ajuste sur un seul GPU de 48 Go.</li><li><strong>Limites mesurées.</strong> LoRA « apprend moins et oublie moins » que l’ajustement complet sur des domaines éloignés (Biderman et al., 2024) ; le facteur \(\alpha/r\) interagit avec le pas d’apprentissage et le rang (une échelle en \(\alpha/\sqrt r\) est parfois préférable).</li></ul>
+</section>
+
+<section id="c6"><div class="tag">Cours / 6.6</div><h3>Le budget mémoire d’un entraînement.</h3>
+<p>En précision mixte avec Adam, chaque paramètre <em>entraîné</em> coûte (Rajbhandari et al., 2020) :</p>
+<div class="formula">\[\underbrace{2}_{\text{poids 16 bits}}+\underbrace{2}_{\text{gradient}}+\underbrace{4}_{\text{copie fp32}}+\underbrace{4+4}_{\text{moments }m,\,v}=16\ \text{octets par paramètre}\]</div>
+<p>Un modèle de 7 milliards de paramètres demande donc environ 112 Go <em>avant</em> les activations, alors que ses poids seuls tiennent dans 14 Go. Les activations s’y ajoutent : pour un bloc Transformer, de l’ordre de \(s\,b\,h\,(34+5as/h)\) octets en 16 bits, pour une longueur \(s\), un lot \(b\), une largeur \(h\) et \(a\) têtes (Korthikanti et al., 2022) — d’où l’intérêt du checkpointing (ch. 1) et de FlashAttention (ch. 5), qui supprime le terme en \(s^2\).</p>
+<div class="lab" id="lab-mem"><div class="labhead"><strong>Laboratoire · Où part la mémoire ?</strong><span>Calculateur</span></div>
+<svg id="memPlot" viewBox="0 0 640 260" role="img" aria-label="Mémoire d’entraînement décomposée pour trois méthodes"></svg>
+<div class="legend" id="memLegend"></div>
+<div class="controls"><label for="mN">Taille du modèle</label><input id="mN" type="range" min="0" max="5" step="1" value="2"><output id="mNOut" for="mN"></output><label for="mFrac">Part entraînée par LoRA</label><select id="mFrac"><option value="0.001">0,1 %</option><option value="0.005" selected>0,5 %</option><option value="0.02">2 %</option></select></div>
+<p class="caption"><b>Lecture.</b> Les traits pointillés marquent 24, 48 et 80 Go, des capacités de GPU courantes. Activations exclues : elles dépendent de la longueur, du lot et du checkpointing. Le partage des états entre GPU (ZeRO 1, 2 et 3 : états d’optimiseur, puis gradients, puis poids) divise ces barres par le nombre de GPU.</p></div>
+</section>
+
+<section id="c7"><div class="tag">Cours / 6.7</div><h3>Précision numérique et quantification.</h3>
+<figure class="fig" id="fig-floats"><svg id="floatFig" viewBox="0 0 640 170" role="img" aria-label="Disposition des bits des formats fp32, fp16 et bf16"></svg>
+<figcaption><b>Fig. 6.4 —</b> Signe, exposant, mantisse. fp16 garde 10 bits de mantisse mais seulement 5 d’exposant : sa plus grande valeur est 65 504 et les petits gradients sous-débordent, d’où le <em>loss scaling</em>. bf16 garde l’exposant de fp32 (même plage) au prix de la précision : c’est le format standard d’entraînement. Les formats fp8 (E4M3, E5M2) prolongent ce compromis.</figcaption></figure>
+<p><strong>Quantifier</strong>, c’est représenter un poids par un entier sur \(b\) bits et une échelle. En quantification symétrique « absmax » :</p>
+<div class="formula">\[\Delta=\frac{\max_i|w_i|}{2^{b-1}-1},\qquad \hat w_i=\Delta\cdot\operatorname{round}\!\big(w_i/\Delta\big),\qquad \mathbb{E}\big[(w-\hat w)^2\big]\approx\frac{\Delta^2}{12}\]</div>
+<p>Chaque bit supplémentaire divise \(\Delta\) par deux, soit environ 6 dB de rapport signal sur bruit. Le point faible est le <strong>maximum</strong> : une seule valeur aberrante fixe l’échelle de tout le tenseur et écrase les autres valeurs sur quelques niveaux. Les grands modèles de langage présentent justement des dimensions d’activations aberrantes (Dettmers et al., 2022, LLM.int8()). Remèdes : échelles par canal ou par groupe de 32 à 128 poids, traitement séparé des aberrations, déplacement de la difficulté des activations vers les poids (SmoothQuant), quantification guidée par l’information de second ordre (GPTQ) ou par les activations (AWQ).</p>
+<div class="lab" id="lab-quant"><div class="labhead"><strong>Laboratoire · Quantifier une matrice de poids</strong><span>Figure interactive</span></div>
+<svg id="quantPlot" viewBox="0 0 640 260" role="img" aria-label="Histogramme des poids et niveaux de quantification"></svg>
+<div class="controls"><label for="qBits">Bits</label><input id="qBits" type="range" min="2" max="8" step="1" value="4"><output id="qBitsOut" for="qBits"></output><label><input type="checkbox" id="qOutlier"> Ajouter une valeur aberrante (×100)</label><label><input type="checkbox" id="qGroup"> Échelles par groupes de 32</label></div>
+<p class="feedback" id="qReadout" aria-live="polite"></p>
+<p class="caption"><b>À observer.</b> Avec la valeur aberrante et une échelle unique, presque tous les poids tombent sur le niveau 0 : l’erreur relative approche 100 %. Avec une échelle par groupe, seul le groupe touché souffre. L’atelier 3 mesure l’effet sur la perte du modèle : int8 ne change rien, int4 par groupes coûte quelques millièmes de nat.</p></div>
+<p><strong>Quantifier après ou pendant l’entraînement ?</strong> La quantification <em>post-entraînement</em> (PTQ) ne demande que quelques exemples de calibration ; l’entraînement <em>conscient de la quantification</em> (QAT) simule l’arrondi pendant l’apprentissage, en propageant le gradient à travers \(\operatorname{round}\) comme s’il était l’identité (<em>straight-through estimator</em>, Bengio et al., 2013).</p>
+</section>
+
+<section id="c8"><div class="tag">Cours / 6.8</div><h3>Distillation et élagage : des modèles plus petits.</h3>
+<p><strong>Distillation</strong> (Hinton et al., 2015). Un « élève » apprend à reproduire les probabilités d’un « maître ». À température \(T\), les probabilités \(p_i^{(T)}=\operatorname{softmax}(z/T)_i\) révèlent la structure des erreurs du maître — quelles classes il juge voisines — que l’étiquette dure ignore :</p>
+<div class="formula">\[\mathcal{L}=(1-\lambda)\,\mathrm{CE}\big(y,\,p_s\big)+\lambda\,T^2\,\mathrm{KL}\big(p_t^{(T)}\,\big\|\,p_s^{(T)}\big)\]</div>
+<p>Le facteur \(T^2\) compense la décroissance en \(1/T^2\) des gradients du terme doux (TD, exercice 5). DistilBERT (Sanh et al., 2019) conserve 97 % des performances de BERT avec 40 % de paramètres en moins.</p>
+<div class="lab" id="lab-temp"><div class="labhead"><strong>Laboratoire · Ce que révèle la température</strong><span>Figure interactive</span></div>
+<svg id="tempPlot" viewBox="0 0 640 230" role="img" aria-label="Distribution du maître à différentes températures"></svg>
+<div class="controls"><label for="tT">Température T</label><input id="tT" type="range" min="0.5" max="8" step="0.1" value="1"><output id="tTOut" for="tT"></output></div>
+<p class="caption"><b>À observer.</b> À \(T=1\), le maître est presque certain que l’image est un « chat » ; l’information « un chat ressemble davantage à un tigre qu’à un camion » est invisible. En augmentant \(T\), les probabilités des classes proches deviennent lisibles : c’est cette « connaissance sombre » que l’élève apprend.</p></div>
+<p><strong>Élagage.</strong> Retirer les poids de faible magnitude (non structuré) ou des têtes, canaux ou couches entières (structuré). Seul l’élagage structuré, ou des motifs creux pris en charge par le matériel (2 sur 4 sur GPU récents), accélère réellement le calcul. L’hypothèse du billet de loterie (Frankle et Carbin, 2019) suggère que de grands réseaux contiennent des sous-réseaux entraînables seuls, si l’on connaît leur initialisation.</p>
+</section>
+
+<section id="c9"><div class="tag">Cours / 6.9</div><h3>Évaluer un transfert sans se tromper.</h3>
+<ul><li><strong>Contamination.</strong> Un modèle préentraîné sur le Web a pu voir les jeux de test publics, parfois avec leurs réponses. Un excellent score ne prouve alors qu’une mémorisation. Contrôles : jeux construits après la date de collecte, recherche de recouvrements de n-grammes, versions perturbées des questions.</li><li><strong>Comparaisons équitables.</strong> À même nombre d’exemples, de graines et de budget de réglage (ch. 3) ; rapporter les paramètres entraînés, la mémoire de pointe et le temps.</li><li><strong>Variance du peu d’exemples.</strong> Avec 16 à 64 exemples, le choix des exemples change fortement le résultat : répéter sur plusieurs tirages, pas seulement plusieurs graines.</li><li><strong>Apprentissage en contexte.</strong> Les grands modèles s’adaptent sans gradient, à partir d’exemples placés dans le prompt (Brown et al., 2020). C’est une autre forme de transfert, très sensible à l’ordre et au format des exemples.</li></ul>
+</section>
+
+<section id="c10"><div class="tag">Cours / 6.10</div><h3>Décider, puis mesurer.</h3>
+<div class="table-scroll"><table><thead><tr><th>Situation</th><th>Point de départ raisonnable</th><th>À mesurer</th></tr></thead><tbody>
+<tr><td>Très peu d’étiquettes, tâche proche du préentraînement</td><td>Sonde linéaire, puis LP-FT</td><td>Variance entre tirages d’exemples</td></tr>
+<tr><td>Données moyennes, plusieurs tâches à servir</td><td>LoRA par tâche sur une base commune</td><td>Rang, emplacement, oubli</td></tr>
+<tr><td>Beaucoup de données, domaine éloigné</td><td>Ajustement complet, pas petit, warmup</td><td>Oubli, coût mémoire</td></tr>
+<tr><td>Contrainte de mémoire à l’entraînement</td><td>QLoRA, checkpointing</td><td>Mémoire de pointe, débit</td></tr>
+<tr><td>Contrainte de latence à l’inférence</td><td>Distillation, quantification int8 ou int4 par groupes</td><td>Perte, latence réelle sur la cible</td></tr></tbody></table></div>
+<p><strong>Profiler.</strong> Une intuition de coût se vérifie : <code>torch.profiler</code> pour le temps par opérateur, <code>torch.cuda.max_memory_allocated()</code> pour la mémoire de pointe. Le débit en jetons par seconde et l’intensité arithmétique (ch. 5) disent si l’on est limité par le calcul ou par la mémoire.</p>
+<label class="check"><input type="checkbox" data-done="cours"> Je sais choisir une stratégie d’adaptation et en établir le budget mémoire.</label>
+<h4>Références</h4>
+<ul class="sources"><li><a href="https://arxiv.org/abs/1810.04805" target="_blank" rel="noopener">Devlin et al. — BERT (2019)</a> ; <a href="https://arxiv.org/abs/1910.10683" target="_blank" rel="noopener">Raffel et al. — T5 (2020)</a> ; <a href="https://arxiv.org/abs/2003.10555" target="_blank" rel="noopener">Clark et al. — ELECTRA (2020)</a> ; <a href="https://arxiv.org/abs/2103.00020" target="_blank" rel="noopener">Radford et al. — CLIP (2021)</a>.</li><li><a href="https://arxiv.org/abs/2001.08361" target="_blank" rel="noopener">Kaplan et al. — Scaling Laws for Neural Language Models (2020)</a> ; <a href="https://arxiv.org/abs/2203.15556" target="_blank" rel="noopener">Hoffmann et al. — Training Compute-Optimal LLMs (2022)</a> ; <a href="https://arxiv.org/abs/2404.10102" target="_blank" rel="noopener">Besiroglu et al. — Chinchilla Scaling: A replication attempt (2024)</a>.</li><li><a href="https://arxiv.org/abs/2206.07682" target="_blank" rel="noopener">Wei et al. — Emergent Abilities (2022)</a> ; <a href="https://arxiv.org/abs/2304.15004" target="_blank" rel="noopener">Schaeffer et al. — Are Emergent Abilities a Mirage? (2023)</a> ; <a href="https://arxiv.org/abs/2305.16264" target="_blank" rel="noopener">Muennighoff et al. — Scaling Data-Constrained LMs (2023)</a>.</li><li><a href="https://arxiv.org/abs/2202.10054" target="_blank" rel="noopener">Kumar et al. — Fine-Tuning can Distort Pretrained Features (2022)</a> ; <a href="https://arxiv.org/abs/1801.06146" target="_blank" rel="noopener">Howard et Ruder — ULMFiT (2018)</a>.</li><li><a href="https://arxiv.org/abs/2106.09685" target="_blank" rel="noopener">Hu et al. — LoRA (2022)</a> ; <a href="https://arxiv.org/abs/2012.13255" target="_blank" rel="noopener">Aghajanyan et al. — Intrinsic Dimensionality (2021)</a> ; <a href="https://arxiv.org/abs/2305.14314" target="_blank" rel="noopener">Dettmers et al. — QLoRA (2023)</a> ; <a href="https://arxiv.org/abs/2405.09673" target="_blank" rel="noopener">Biderman et al. — LoRA Learns Less and Forgets Less (2024)</a>.</li><li><a href="https://arxiv.org/abs/1910.02054" target="_blank" rel="noopener">Rajbhandari et al. — ZeRO (2020)</a> ; <a href="https://arxiv.org/abs/2205.05198" target="_blank" rel="noopener">Korthikanti et al. — Reducing Activation Recomputation (2022)</a> ; <a href="https://arxiv.org/abs/1710.03740" target="_blank" rel="noopener">Micikevicius et al. — Mixed Precision Training (2018)</a>.</li><li><a href="https://arxiv.org/abs/2208.07339" target="_blank" rel="noopener">Dettmers et al. — LLM.int8() (2022)</a> ; <a href="https://arxiv.org/abs/2210.17323" target="_blank" rel="noopener">Frantar et al. — GPTQ (2023)</a> ; <a href="https://arxiv.org/abs/2211.10438" target="_blank" rel="noopener">Xiao et al. — SmoothQuant (2023)</a>.</li><li><a href="https://arxiv.org/abs/1503.02531" target="_blank" rel="noopener">Hinton, Vinyals et Dean — Distilling the Knowledge in a Neural Network (2015)</a> ; <a href="https://arxiv.org/abs/1910.01108" target="_blank" rel="noopener">Sanh et al. — DistilBERT (2019)</a> ; <a href="https://arxiv.org/abs/1803.03635" target="_blank" rel="noopener">Frankle et Carbin — The Lottery Ticket Hypothesis (2019)</a>.</li></ul>
+<div class="callout"><div class="tag">Transition vers le chapitre 7</div><p>Le préentraînement repose ici sur la reconstruction de jetons. Le chapitre 7 étudie une autre famille d’objectifs auto-supervisés, qui comparent des représentations au lieu de reconstruire les données — contrastifs, non contrastifs, et prédictifs dans l’espace latent (JEPA) — et le risque central qu’ils doivent éviter : l’effondrement.</p></div>
+</section>
+</article></div></section>
+
+<!-- ============================== TD ============================== -->
+<section class="chapter td" id="td"><button type="button" class="rail" id="rail-1" aria-controls="panel-1" aria-expanded="false"><span class="num">02</span><span class="rail-word">TD & démonstrations</span><span class="rail-symbol" aria-hidden="true">+</span></button>
+<div class="content" id="panel-1" role="region" aria-labelledby="rail-1">
+<div class="section-banner"><div class="banner-copy"><div class="tag">Démontrer</div><strong>Compter, optimiser, borner.</strong><p>Les décisions d’efficacité se justifient par un calcul — et par ses hypothèses.</p><button type="button" class="banner-toggle" aria-pressed="false">Mettre l’animation en pause</button></div>
+<div class="banner-art" aria-hidden="true"><svg viewBox="0 0 270 135"><g class="math-highlight"><rect class="mathnode" x="15" y="25" width="80" height="80" rx="4"/><text class="svgtext" x="55" y="70">W₀</text></g><text class="svgtext" x="112" y="70">+</text><g class="math-highlight two"><rect class="mathnode" x="130" y="25" width="20" height="80" rx="3"/><text class="svgtext" x="140" y="120">B</text></g><g class="math-highlight three"><rect class="mathnode" x="160" y="25" width="80" height="20" rx="3"/><text class="svgtext" x="200" y="62">A</text></g></svg></div></div>
+<article class="reading">
+<div class="tag">Chapitre 6 / TD et démonstrations · 1 h encadrée + approfondissements</div><h3>Des budgets qui se démontrent.</h3>
+<p>Les exercices 1 à 4 forment le cœur de la séance ; 5 à 8 approfondissent. Plusieurs résultats seront mesurés dans l’atelier : prédire avant d’exécuter.</p>
+
+<section id="td1"><div class="tag">Exercice 1 / LoRA · 15 min</div><h3>Rang, initialisation, fusion.</h3>
+<p>On adapte \(W_0\in\mathbb{R}^{d\times k}\) par \(W=W_0+\tfrac{\alpha}{r}BA\). <strong>A.</strong> Montrer que \(\operatorname{rang}(BA)\le r\) et compter les paramètres entraînés pour \(d=k=4096\), \(r=8\). <strong>B.</strong> Pourquoi initialiser \(B=0\) plutôt que \(A=0\) et \(B\) aléatoire ? Et pourquoi pas les deux à zéro ? <strong>C.</strong> Montrer qu’après entraînement, l’inférence ne coûte rien de plus. <strong>D.</strong> Comment retirer l’adaptation et retrouver exactement \(W_0\) ?</p>
+<details class="reveal"><summary>Correction</summary><div class="answer"><p><strong>A.</strong> L’image de \(BA\) est contenue dans celle de \(B\), de dimension \(\le r\). Paramètres : \(r(d+k)=65\,536\), contre \(dk=16\,777\,216\) pour \(W_0\), soit <strong>0,39 %</strong>.</p><p><strong>B.</strong> Avec \(B=0\), \(W=W_0\) au départ : le modèle adapté commence exactement au modèle préentraîné, et \(\partial L/\partial B=\tfrac{\alpha}{r}\,G A^{\top}\neq0\) car \(A\) est aléatoire (\(G=\partial L/\partial W\)). L’inverse (\(A=0\), \(B\) aléatoire) fonctionne aussi par symétrie. Si les deux sont nuls, \(\partial L/\partial A=\tfrac{\alpha}{r}B^{\top}G=0\) et \(\partial L/\partial B=0\) : point stationnaire, rien n’apprend.</p><p><strong>C.</strong> On calcule une fois \(W=W_0+\tfrac{\alpha}{r}BA\) et l’on remplace la couche : même forme, même coût. <strong>D.</strong> Conserver \(B\), \(A\) et soustraire \(\tfrac{\alpha}{r}BA\), ou garder \(W_0\) intact et ne fusionner qu’à la volée. C’est ce qui permet de servir plusieurs tâches sur une même base.</p></div></details></section>
+
+<section id="td2"><div class="tag">Exercice 2 / Lois d’échelle · 20 min</div><h3>L’optimum de Chinchilla.</h3>
+<p>Avec \(L(N,D)=E+AN^{-\alpha}+BD^{-\beta}\) et la contrainte \(C=6ND\) : <strong>A.</strong> Trouver \(N^\*(C)\) et \(D^\*(C)\). <strong>B.</strong> Avec \(\alpha=0{,}34\), \(\beta=0{,}28\), \(A=406{,}4\), \(B=410{,}7\), calculer l’optimum pour le budget de Chinchilla, \(C\approx5{,}9\cdot10^{23}\) FLOPs. Comparer au choix réel (70 milliards de paramètres, 1,4 billion de jetons). <strong>C.</strong> Que conclure sur la robustesse de ces ajustements ?</p>
+<details class="reveal"><summary>Indice</summary><div class="answer"><p>Substituer \(D=C/(6N)\), dériver par rapport à \(N\) et annuler.</p></div></details>
+<details class="reveal"><summary>Correction</summary><div class="answer"><p><strong>A.</strong> \(f(N)=AN^{-\alpha}+B\,(C/6)^{-\beta}N^{\beta}\). \(f'(N)=0\) donne \(N^{\alpha+\beta}=\tfrac{\alpha A}{\beta B}(C/6)^{\beta}\), d’où</p><div class="formula">\[N^\*=G\Big(\frac{C}{6}\Big)^{\frac{\beta}{\alpha+\beta}},\qquad D^\*=G^{-1}\Big(\frac{C}{6}\Big)^{\frac{\alpha}{\alpha+\beta}},\qquad G=\Big(\frac{\alpha A}{\beta B}\Big)^{\frac1{\alpha+\beta}}\]</div><p><strong>B.</strong> Exposants \(0{,}45\) et \(0{,}55\), \(G\approx1{,}34\). Pour \(C=5{,}9\cdot10^{23}\) : \(N^\*\approx33\) milliards, \(D^\*\approx3{,}0\) billions de jetons (≈ 93 jetons par paramètre), perte prédite 1,930 contre 1,937 pour le choix réel.</p><p><strong>C.</strong> Les deux configurations ont presque la même perte prédite : l’optimum est <em>plat</em>, et l’ajustement paramétrique désigne un modèle deux fois plus petit que les deux autres méthodes du même article, qui convergeaient vers ≈ 20 jetons par paramètre. La réplication de Besiroglu et al. (2024) a montré que cet ajustement était mal estimé. Une loi d’échelle donne un ordre de grandeur et une direction, pas un réglage précis.</p></div></details></section>
+
+<section id="td3"><div class="tag">Exercice 3 / Mémoire · 10 min</div><h3>Peut-on ajuster un modèle de 7 milliards de paramètres sur un GPU de 24 Go ?</h3>
+<p>Établir le budget hors activations pour : <strong>A.</strong> l’ajustement complet en précision mixte avec Adam ; <strong>B.</strong> LoRA entraînant 0,5 % des paramètres sur une base en 16 bits ; <strong>C.</strong> QLoRA, base en 4 bits. <strong>D.</strong> Quelle part reste pour les activations dans chaque cas ?</p>
+<details class="reveal"><summary>Correction</summary><div class="answer"><p><strong>A.</strong> \(16\times7\cdot10^9=112\) Go (≈ 104 Gio) : impossible sans partage sur plusieurs GPU (ZeRO). <strong>B.</strong> Poids 14 Go, plus \(3{,}5\cdot10^7\) paramètres entraînés à 14 octets (gradient, copie fp32, deux moments) ≈ 0,5 Go : ≈ 14,5 Go. <strong>C.</strong> 3,5 Go + 0,5 Go ≈ 4 Go. <strong>D.</strong> Environ 9,5 Go en B et 20 Go en C pour les activations, qui dépendent de la longueur et du lot (checkpointing, FlashAttention). L’atelier 3 vérifie que l’état d’Adam ne concerne que les paramètres entraînés.</p></div></details></section>
+
+<section id="td4"><div class="tag">Exercice 4 / Quantification · 15 min</div><h3>Erreur d’arrondi et valeur aberrante.</h3>
+<p><strong>A.</strong> Si l’erreur d’arrondi est uniforme sur \([-\Delta/2,\Delta/2]\), montrer que sa variance vaut \(\Delta^2/12\). En déduire le gain en rapport signal sur bruit par bit supplémentaire pour un signal uniforme sur \([-M,M]\). <strong>B.</strong> Une matrice a des poids \(\mathcal N(0,0{,}02^2)\) et une seule valeur égale à 2. En int4 absmax par tenseur, quel est le pas \(\Delta\) ? Que deviennent les autres poids ? <strong>C.</strong> Quel est le surcoût d’une échelle 16 bits par groupe de 32 poids ?</p>
+<details class="reveal"><summary>Correction</summary><div class="answer"><p><strong>A.</strong> \(\int_{-\Delta/2}^{\Delta/2}e^2\,\tfrac{de}{\Delta}=\tfrac{\Delta^2}{12}\). Avec \(\Delta=2M/2^b\), signal \(M^2/3\) et bruit \(M^2/(3\cdot 2^{2b})\) : RSB \(=2^{2b}\), soit \(20\log_{10}2\approx6{,}02\) dB par bit.</p><p><strong>B.</strong> \(\Delta=2/7\approx0{,}29\). Tout poids \(|w|&lt;\Delta/2\approx0{,}14\), c’est-à-dire plus de 7 écarts-types, est arrondi à 0 : la matrice entière disparaît, sauf la valeur aberrante. L’atelier mesure une erreur relative de 93 %.</p><p><strong>C.</strong> 16 bits pour 32 poids : 0,5 bit par poids, soit 4,5 bits effectifs pour « int4 ». C’est le prix, modeste, de la robustesse.</p></div></details></section>
+
+<section id="td5"><div class="tag">Exercice 5 / Approfondissement · 15 min</div><h3>Pourquoi \(T^2\) en distillation ?</h3>
+<p>Soient les logits du maître \(v\) et de l’élève \(z\), \(p=\operatorname{softmax}(v/T)\), \(q=\operatorname{softmax}(z/T)\) et \(C=-\sum_ip_i\log q_i\). <strong>A.</strong> Calculer \(\partial C/\partial z_i\). <strong>B.</strong> Pour \(T\) grand et des logits centrés, montrer que \(\partial C/\partial z_i\approx (z_i-v_i)/(KT^2)\), avec \(K\) classes. <strong>C.</strong> Conclure sur le facteur \(T^2\) et sur ce que devient la distillation à très haute température.</p>
+<details class="reveal"><summary>Correction</summary><div class="answer"><p><strong>A.</strong> Comme au chapitre 1, \(\partial C/\partial(z_i/T)=q_i-p_i\), donc \(\partial C/\partial z_i=(q_i-p_i)/T\). <strong>B.</strong> \(e^{z_i/T}\approx1+z_i/T\) et \(\sum_j z_j=0\) donnent \(q_i\approx(1+z_i/T)/K\), de même pour \(p_i\) ; d’où \((q_i-p_i)/T\approx(z_i-v_i)/(KT^2)\). <strong>C.</strong> Sans correction, le terme doux s’affaiblirait en \(1/T^2\) et son poids relatif dépendrait de \(T\). Multiplier par \(T^2\) le rend comparable quand on change \(T\). À très haute température, distiller revient à faire coïncider les logits centrés (régression des logits).</p></div></details></section>
+
+<section id="td6"><div class="tag">Exercice 6 / Approfondissement · 20 min</div><h3>Pourquoi l’ajustement complet peut déformer les représentations.</h3>
+<p>Modèle linéaire à deux couches \(f(x)=v^{\top}Bx\), \(B\in\mathbb{R}^{k\times d}\) préentraînée, \(v\) initialisée au hasard. Les entrées d’entraînement \(x_1,\dots,x_n\) engendrent un sous-espace \(S\subsetneq\mathbb{R}^d\). <strong>A.</strong> Calculer \(\nabla_B\) de la perte empirique. <strong>B.</strong> En déduire que \(Bu\) reste constant pendant la descente de gradient pour tout \(u\perp S\). <strong>C.</strong> Une entrée hors distribution \(x=s+u\) (\(s\in S\), \(u\perp S\)) : pourquoi la prédiction peut-elle se dégrader, alors qu’une sonde linéaire seule ne pose pas ce problème ? Quel remède en découle ?</p>
+<details class="reveal"><summary>Correction</summary><div class="answer"><p><strong>A.</strong> \(\nabla_B=\sum_i\ell'_i\,v\,x_i^{\top}=v\big(\sum_i\ell'_ix_i\big)^{\top}\) : chaque ligne est dans \(S\). <strong>B.</strong> Chaque mise à jour \(\Delta B\) vérifie \(\Delta B\,u=0\) pour \(u\perp S\) ; par récurrence \(B_tu=B_0u\). <strong>C.</strong> Sur \(S\), \(B\) et \(v\) changent conjointement pour s’ajuster ; hors de \(S\), les caractéristiques \(B_0u\) sont intactes mais la tête \(v\) a changé : la combinaison \(v_t^{\top}B_0u\) n’a plus de raison d’être cohérente. Une sonde ne modifie pas \(B\) et reste cohérente partout. Remède : <strong>LP-FT</strong>, entraîner d’abord \(v\) seule, puis tout ajuster ; les gradients initiaux sur \(B\) sont alors petits (Kumar et al., 2022).</p></div></details></section>
+
+<section id="td7"><div class="tag">Exercice 7 / Approfondissement · 10 min</div><h3>Lire une perte de modèle de langage.</h3>
+<p>Dans l’atelier, le modèle préentraîné atteint une perte de validation de 1,559 nat par jeton sur un vocabulaire de 24 jetons. On calcule aussi trois références : 1,475 si l’on connaît le thème de chaque séquence, 1,520 pour un prédicteur bayésien qui infère le thème au fil de la séquence, 1,860 pour le mélange des quatre thèmes sans inférence. <strong>A.</strong> Convertir en perplexité et en bits par jeton. <strong>B.</strong> Que montre la position de 1,559 entre ces références ? <strong>C.</strong> Pourquoi la perte d’un modèle de langage ne peut-elle pas descendre sous 1,475 en moyenne ?</p>
+<details class="reveal"><summary>Correction</summary><div class="answer"><p><strong>A.</strong> \(e^{1{,}559}\approx4{,}75\) choix équivalents (contre 24), soit \(1{,}559/\ln2\approx2{,}25\) bits par jeton. <strong>B.</strong> Le modèle a comblé environ 88 % de l’écart entre « ignorer le thème » (1,860) et l’inférence bayésienne (1,520) : il <em>infère le thème en contexte</em>, ce qui explique qu’une sonde linéaire le retrouve à 98 %. Le préentraînement a appris une variable latente jamais étiquetée. <strong>C.</strong> 1,475 est l’entropie conditionnelle du processus quand le thème est connu : aucun prédicteur ne peut faire mieux en espérance (ch. 3 : perte irréductible, le terme \(E\) des lois d’échelle).</p></div></details></section>
+
+<section id="td8"><div class="tag">Exercice 8 / Discussion · 10 min</div><h3>Concevoir un objectif masqué.</h3>
+<p><strong>A.</strong> Pourquoi BERT ne remplace-t-il pas toujours les jetons choisis par [MASK] ? <strong>B.</strong> Un modèle masqué n’apprend que sur 15 % des positions. Proposer deux façons de récupérer le signal des autres positions. <strong>C.</strong> Pourquoi un modèle masqué ne génère-t-il pas naturellement du texte ?</p>
+<details class="reveal"><summary>Éléments de réponse</summary><div class="answer"><p><strong>A.</strong> [MASK] n’apparaît jamais à l’ajustement : sans les 10 % aléatoires et 10 % inchangés, le modèle pourrait n’apprendre de bonnes représentations qu’aux positions masquées. <strong>B.</strong> Détecter les jetons remplacés à toutes les positions (ELECTRA) ; varier les taux de masquage ; objectifs causaux qui exploitent toutes les positions. <strong>C.</strong> Il modélise \(p(x_i\mid x_{\setminus i})\), pas une factorisation de \(p(x)\) ; générer demande un ordre et une procédure itérative.</p></div></details></section>
+
+<label class="check"><input type="checkbox" data-done="td"> Je sais dériver l’optimum d’une loi d’échelle, le budget mémoire et l’effet d’une valeur aberrante.</label>
+<div class="callout"><div class="tag">Discussion finale</div><p>« LoRA atteint les performances de l’ajustement complet. » Reformuler cette affirmation avec ses conditions : taille du modèle, distance entre domaines, rang, nombre d’exemples, et ce qui est mesuré (performance cible, oubli, mémoire).</p></div>
+</article></div></section>
+
+<!-- ============================== TP ============================== -->
+<section class="chapter tp" id="tp"><button type="button" class="rail" id="rail-2" aria-controls="panel-2" aria-expanded="false"><span class="num">03</span><span class="rail-word">TP · Ateliers</span><span class="rail-symbol" aria-hidden="true">+</span></button>
+<div class="content" id="panel-2" role="region" aria-labelledby="rail-2">
+<div class="section-banner"><div class="banner-copy"><div class="tag">Expérimenter</div><strong>Préentraîner, puis adapter avec 64 exemples.</strong><p>Un laboratoire miniature où chaque stratégie se mesure : précision, paramètres, mémoire, oubli.</p><button type="button" class="banner-toggle" aria-pressed="false">Mettre l’animation en pause</button></div>
+<div class="banner-art" aria-hidden="true"><svg viewBox="0 0 270 135"><path class="wire" d="M15 10V120H250"/><path class="loss-path" d="M20 20 C60 15 55 90 100 76 S150 115 230 109"/><circle class="loss-point" r="5" cx="0" cy="0"/><text class="svgtext" x="220" y="29">L(θ)</text></svg></div></div>
+<article class="reading">
+<div class="tag">Chapitre 6 / Ateliers Jupyter · 1 h encadrée + autonomie</div><h3>Le contrat du préentraînement, vérifié de bout en bout.</h3>
+<p><strong>Mission :</strong> préentraîner un petit modèle de langage sur un « langage » synthétique sans étiquettes, puis l’adapter à une tâche de classification avec 64 exemples seulement. Comparer cinq stratégies, mesurer l’oubli, établir un budget mémoire et quantifier le modèle. Tout tourne sur CPU.</p>
+<div class="actions"><button class="action" data-notebook="complete" data-file="Chapitre_6_Atelier_Corrige.ipynb">Notebook corrigé</button><button data-notebook="starter" data-file="Chapitre_6_Atelier_A_Completer.ipynb">Notebook à compléter</button><button id="exportNotes">Exporter mes notes</button></div>
+<p class="small">PyTorch CPU, NumPy, Matplotlib. Durées indicatives sur 4 cœurs : préentraînement ≈ 1 min, cinq stratégies × trois graines ≈ 3 min, courbe d’efficacité ≈ 3 min, distillation ≈ 1 min. La version à compléter laisse à écrire la couche LoRA, la quantification par groupes et la perte de distillation.</p>
+<div class="steps" data-phases="tp" aria-label="Ateliers"><button data-phase-of="tp" data-phase="0">1 · Préentraîner sans étiquettes</button><button data-phase-of="tp" data-phase="1">2 · Adapter : cinq stratégies</button><button data-phase-of="tp" data-phase="2">3 · Mémoire et quantification</button><button data-phase-of="tp" data-phase="3">4 · Distillation, prolongements, livrable</button></div>
+
+<section class="phase" data-group="tp" id="lab1"><div class="tag">Atelier 1 · 15 min</div><h3>Un langage à quatre thèmes, appris sans étiquette.</h3>
+<p>Chaque séquence de 32 jetons suit une chaîne de Markov dont la matrice de transition dépend d’un <strong>thème caché</strong> parmi quatre. Les thèmes partagent une structure commune et en diffèrent par une perturbation propre. Le modèle de langage ne reçoit jamais le thème ; pour bien prédire le jeton suivant, il a pourtant intérêt à l’inférer à partir du contexte.</p>
+<label for="note1" class="small">Prédiction : la perte de validation sera-t-elle plus proche de 1,860 (mélange sans inférence) ou de 1,520 (inférence bayésienne) ?</label><textarea id="note1" data-note placeholder="Je prévois… parce que…"></textarea>
+<details class="reveal"><summary>Cellule 1 · Imports</summary><div class="answer"><pre class="code"><code>import math, time, copy
+import numpy as np
+import torch
+from torch import nn
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+torch.set_num_threads(4)
+print(&#x27;PyTorch :&#x27;, torch.__version__)</code></pre></div></details>
+<details class="reveal"><summary>Cellule 2 · Données synthétiques</summary><div class="answer"><pre class="code"><code># CELLULE 2 — Un « langage » synthétique : quatre thèmes, chacun avec ses transitions.
+V, T, K = 24, 32, 4                       # vocabulaire, longueur, nombre de thèmes
+g = torch.Generator().manual_seed(0)
+base = 2.0 * torch.randn(V, V, generator=g)           # structure commune à tous les thèmes
+TRANS = (base + 1.5 * torch.randn(K, V, V, generator=g)).softmax(-1)   # (K, V, V) : un écart propre à chaque thème
+
+def sample(n, seed):
+    gen = torch.Generator().manual_seed(seed)
+    z = torch.randint(0, K, (n,), generator=gen)
+    x = torch.empty(n, T, dtype=torch.long)
+    x[:, 0] = torch.randint(0, V, (n,), generator=gen)
+    for t in range(1, T):
+        x[:, t] = torch.multinomial(TRANS[z, x[:, t - 1]], 1, generator=gen).squeeze(1)
+    return x, z
+
+X_pre, _ = sample(20000, seed=1)          # préentraînement : aucune étiquette utilisée
+X_lm_val, _ = sample(2000, seed=2)        # mesure de la perte de langage (oubli)
+X_tr, z_tr = sample(64, seed=3)           # tâche cible : 64 exemples étiquetés
+X_te, z_te = sample(4000, seed=4)
+print(&#x27;Préentraînement&#x27;, tuple(X_pre.shape), &#x27;; cible&#x27;, tuple(X_tr.shape), &#x27;; test&#x27;, tuple(X_te.shape))</code></pre></div></details>
+<details class="reveal"><summary>Cellule 3 · Petit GPT et préentraînement</summary><div class="answer"><pre class="code"><code># CELLULE 3 — Un petit décodeur causal (type GPT) et son préentraînement.
+class Block(nn.Module):
+    def __init__(self, d, h):
+        super().__init__()
+        self.h = h
+        self.ln1, self.ln2 = nn.LayerNorm(d), nn.LayerNorm(d)
+        self.qkv, self.proj = nn.Linear(d, 3 * d), nn.Linear(d, d)
+        self.fc1, self.fc2 = nn.Linear(d, 4 * d), nn.Linear(4 * d, d)
+    def forward(self, x):
+        B, n, d = x.shape
+        q, k, v = self.qkv(self.ln1(x)).view(B, n, 3, self.h, d // self.h).permute(2, 0, 3, 1, 4)
+        a = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        x = x + self.proj(a.transpose(1, 2).reshape(B, n, d))
+        return x + self.fc2(F.gelu(self.fc1(self.ln2(x))))
+
+class TinyGPT(nn.Module):
+    def __init__(self, d=64, h=4, layers=2):
+        super().__init__()
+        self.emb, self.pos = nn.Embedding(V, d), nn.Parameter(0.02 * torch.randn(T, d))
+        self.blocks = nn.ModuleList(Block(d, h) for _ in range(layers))
+        self.ln, self.lm_head = nn.LayerNorm(d), nn.Linear(d, V)
+    def features(self, x):
+        h = self.emb(x) + self.pos[:x.shape[1]]
+        for b in self.blocks:
+            h = b(h)
+        return self.ln(h)                          # (B, n, d)
+    def forward(self, x):
+        return self.lm_head(self.features(x))
+
+def lm_loss(model, X):
+    with torch.no_grad():
+        logits = model(X[:, :-1])
+        return F.cross_entropy(logits.reshape(-1, V), X[:, 1:].reshape(-1)).item()
+
+def pretrain(steps=2500, seed=0):
+    torch.manual_seed(seed)
+    model = TinyGPT()
+    opt = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=.01)
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=3e-3, total_steps=steps, pct_start=.1)
+    gen, history = torch.Generator().manual_seed(seed), []
+    for step in range(steps):
+        xb = X_pre[torch.randint(0, len(X_pre), (64,), generator=gen)]
+        loss = F.cross_entropy(model(xb[:, :-1]).reshape(-1, V), xb[:, 1:].reshape(-1))
+        opt.zero_grad(set_to_none=True); loss.backward(); opt.step(); sched.step()
+        if step % 50 == 0:
+            history.append((step, loss.item()))
+    return model, history
+
+t0 = time.time()
+pretrained, pre_history = pretrain()
+print(f&#x27;Préentraînement : {time.time()-t0:.0f} s ; perte LM validation = {lm_loss(pretrained, X_lm_val):.3f}&#x27;,
+      f&#x27;(uniforme : log V = {math.log(V):.3f})&#x27;)</code></pre></div></details>
+<figure class="fig" id="fig-pretrain"><svg id="preCurve" role="img" aria-label="Perte de préentraînement et références théoriques"></svg>
+<div class="legend"><span><i style="background:var(--blue)"></i>perte d’entraînement (lot)</span><span><i style="background:var(--ochre)"></i>mélange sans inférence : 1,860</span><span><i style="background:var(--green)"></i>inférence bayésienne : 1,520</span><span><i style="background:var(--muted)"></i>thème connu : 1,475</span></div>
+<figcaption><b>Fig. 6.5 —</b> Résultats réels. La perte franchit le niveau « mélange sans inférence » : le modèle a appris à inférer le thème en contexte. Il termine à 1,559 en validation, à 0,04 nat de l’inférence bayésienne optimale (TD, exercice 7).</figcaption></figure>
+<button class="action" data-phase-of="tp" data-phase="1">Atelier 2 →</button></section>
+
+<section class="phase" data-group="tp" id="lab2"><div class="tag">Atelier 2 · 45 min</div><h3>Cinq stratégies, 64 exemples, trois graines.</h3>
+<p>Tâche cible : retrouver le thème d’une séquence. Toutes les stratégies reçoivent les mêmes 64 exemples et 300 mises à jour ; seuls changent les paramètres entraînés et le pas, choisi une fois pour toutes par stratégie.</p>
+<ol><li>Implémenter <code>LoRALinear</code> (cellule 4) et vérifier qu’avec \(B=0\) le modèle adapté calcule exactement la même chose que le modèle préentraîné.</li><li>Comparer : à partir de zéro, sonde linéaire, ajustement complet, LoRA de rang 1, 4 et 16.</li><li>Mesurer l’oubli : la perte de modèle de langage du tronc après adaptation.</li></ol>
+<label for="note2" class="small">Prédiction : classez les cinq stratégies avant d’exécuter.</label><textarea id="note2" data-note placeholder="Je prévois l’ordre… parce que…"></textarea>
+<details class="reveal"><summary>Cellule 4 · LoRA et tête de classification</summary><div class="answer"><pre class="code"><code># CELLULE 4 — LoRA : W = W₀ + (α/r)·B A, avec B initialisée à zéro.
+class LoRALinear(nn.Module):
+    def __init__(self, base, r, alpha=None):
+        super().__init__()
+        self.base, self.r, self.scale = base, r, (alpha or 2 * r) / r
+        for p in self.base.parameters():
+            p.requires_grad_(False)
+        self.A = nn.Parameter(torch.randn(r, base.in_features) / math.sqrt(base.in_features))
+        self.B = nn.Parameter(torch.zeros(base.out_features, r))
+    def forward(self, x):
+        return self.base(x) + self.scale * (x @ self.A.T) @ self.B.T
+    def merged_weight(self):
+        return self.base.weight + self.scale * self.B @ self.A
+
+def add_lora(model, r):
+    for blk in model.blocks:
+        for name in (&#x27;qkv&#x27;, &#x27;proj&#x27;, &#x27;fc1&#x27;, &#x27;fc2&#x27;):
+            setattr(blk, name, LoRALinear(getattr(blk, name), r))
+    return model
+
+class Classifier(nn.Module):
+    &quot;&quot;&quot;Tronc (préentraîné ou non) + tête linéaire sur la moyenne des positions.&quot;&quot;&quot;
+    def __init__(self, trunk):
+        super().__init__()
+        self.trunk, self.head = trunk, nn.Linear(64, K)
+    def forward(self, x):
+        return self.head(self.trunk.features(x).mean(1))
+
+def trainable(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)</code></pre></div></details>
+<details class="reveal"><summary>Cellule 5 · Cinq stratégies</summary><div class="answer"><pre class="code"><code># CELLULE 5 — Cinq stratégies, trois graines, même budget : 300 mises à jour sur 64 exemples.
+def adapt(method, seed, Xs=None, zs=None, steps=300):
+    Xs, zs = (X_tr, z_tr) if Xs is None else (Xs, zs)
+    torch.manual_seed(seed)
+    trunk = TinyGPT() if method == &#x27;scratch&#x27; else copy.deepcopy(pretrained)
+    if method == &#x27;probe&#x27; or method.startswith(&#x27;lora&#x27;):
+        for p in trunk.parameters():
+            p.requires_grad_(False)                 # tronc gelé
+    if method.startswith(&#x27;lora&#x27;):
+        add_lora(trunk, int(method.split(&#x27;-&#x27;)[1]))
+    model = Classifier(trunk)
+    lr = {&#x27;scratch&#x27;: 1e-3, &#x27;probe&#x27;: 1e-2, &#x27;full&#x27;: 3e-4}.get(method, 3e-3)
+    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=.01)
+    gen = torch.Generator().manual_seed(seed)
+    for step in range(steps):
+        idx = torch.randperm(len(Xs), generator=gen)[:64]
+        loss = F.cross_entropy(model(Xs[idx]), zs[idx])
+        opt.zero_grad(set_to_none=True); loss.backward(); opt.step()
+    with torch.no_grad():
+        acc = (model(X_te).argmax(-1) == z_te).float().mean().item()
+    return model, acc
+
+methods = [&#x27;scratch&#x27;, &#x27;probe&#x27;, &#x27;full&#x27;, &#x27;lora-1&#x27;, &#x27;lora-4&#x27;, &#x27;lora-16&#x27;]
+results = {}
+for m in methods:
+    runs = [adapt(m, s) for s in range(3)]
+    results[m] = dict(acc=[a for _, a in runs], params=trainable(runs[0][0]), model=runs[0][0])
+    print(f&#x27;{m:8s} accuracy {np.mean(results[m][&quot;acc&quot;]):.3f} ± {np.std(results[m][&quot;acc&quot;]):.3f}&#x27;
+          f&#x27;   paramètres entraînés : {results[m][&quot;params&quot;]:6d}&#x27;)</code></pre></div></details>
+<details class="reveal"><summary>Cellule 6 · Oubli</summary><div class="answer"><pre class="code"><code># CELLULE 6 — Oubli : que devient le modèle de langage après adaptation ?
+def lm_loss_of(model):
+    trunk = model.trunk
+    with torch.no_grad():
+        logits = trunk.lm_head(trunk.features(X_lm_val[:, :-1]))   # même tête LM, tronc adapté
+        return F.cross_entropy(logits.reshape(-1, V), X_lm_val[:, 1:].reshape(-1)).item()
+
+forgetting = {&#x27;préentraîné&#x27;: lm_loss(pretrained, X_lm_val)}
+for m in [&#x27;probe&#x27;, &#x27;full&#x27;, &#x27;lora-4&#x27;]:
+    forgetting[m] = lm_loss_of(results[m][&#x27;model&#x27;])
+lora_layers = [mod for mod in results[&#x27;lora-4&#x27;][&#x27;model&#x27;].modules() if isinstance(mod, LoRALinear)]
+scales = [mod.scale for mod in lora_layers]
+for mod in lora_layers:
+    mod.scale = 0.                                   # on retire B·A
+forgetting[&#x27;lora-4, adaptateurs retirés&#x27;] = lm_loss_of(results[&#x27;lora-4&#x27;][&#x27;model&#x27;])
+for mod, s in zip(lora_layers, scales):
+    mod.scale = s
+for k, v in forgetting.items():
+    print(f&#x27;{k:28s} perte LM : {v:.3f}&#x27;)</code></pre></div></details>
+<figure class="fig" id="fig-methods"><svg id="methodsPlot" role="img" aria-label="Accuracy en fonction du nombre de paramètres entraînés pour chaque stratégie"></svg>
+<figcaption><b>Fig. 6.6 —</b> Accuracy test (moyenne et écart-type sur trois graines) en fonction du nombre de paramètres entraînés, échelle logarithmique. Le préentraînement fait passer de 55 % à plus de 90 % ; avec 64 exemples, la <em>plus petite</em> adaptation (la sonde, 260 paramètres) est la meilleure, et LoRA se dégrade quand le rang augmente.</figcaption></figure>
+<figure class="fig" id="fig-forget"><svg id="forgetPlot" role="img" aria-label="Perte de modèle de langage après chaque adaptation"></svg>
+<figcaption><b>Fig. 6.7 —</b> Perte de modèle de langage du tronc après adaptation (plus haut = plus d’oubli). L’ajustement complet détruit le modèle de langage. LoRA <em>actif</em> le dégrade aussi, ici davantage, car son pas est dix fois plus grand ; mais retirer \(BA\) le restaure exactement. Ne pas confondre « peu de paramètres » et « peu de changement de fonction ».</figcaption></figure>
+<div class="callout"><div class="tag">Questions d’analyse</div><p>(1) Pourquoi la sonde bat-elle l’ajustement complet avec 64 exemples ? Reliez au surapprentissage (ch. 3) et à l’exercice 6 du TD. (2) Pourquoi LoRA de rang 16 fait-il moins bien que de rang 1 ? Le pas d’apprentissage a été fixé une fois pour tous les rangs : est-ce équitable ? (3) Trois graines suffisent-elles à séparer LoRA-1 (95,2 %) et l’ajustement complet (94,4 %) ?</p></div>
+<label class="check"><input type="checkbox" data-done="tp"> J’ai comparé les cinq stratégies, mesuré l’oubli et discuté l’équité du protocole.</label>
+<button class="action" data-phase-of="tp" data-phase="2">Atelier 3 →</button></section>
+
+<section class="phase" data-group="tp" id="lab3"><div class="tag">Atelier 3 · autonomie, 45 min</div><h3>Quand le préentraînement compte-t-il ? Et combien coûte-t-il ?</h3>
+<details class="reveal"><summary>Cellule 7 · Efficacité en étiquettes</summary><div class="answer"><pre class="code"><code># CELLULE 7 — Efficacité en étiquettes : la valeur du préentraînement dépend de n.
+X_big, z_big = sample(1024, seed=5)
+label_curve = {m: [] for m in [&#x27;scratch&#x27;, &#x27;probe&#x27;, &#x27;full&#x27;, &#x27;lora-4&#x27;]}
+for n in [16, 64, 256, 1024]:
+    for m in label_curve:
+        label_curve[m].append((n, adapt(m, 0, X_big[:n], z_big[:n])[1]))
+    print(n, {m: round(v[-1][1], 3) for m, v in label_curve.items()})
+for m, pts in label_curve.items():
+    plt.semilogx(*zip(*pts), &#x27;o-&#x27;, label=m)
+plt.xlabel(&#x27;Exemples étiquetés&#x27;); plt.ylabel(&#x27;Accuracy test&#x27;); plt.legend(); plt.show()</code></pre></div></details>
+<figure class="fig" id="fig-curve"><svg id="curvePlot" role="img" aria-label="Accuracy en fonction du nombre d’exemples étiquetés"></svg>
+<div class="legend" id="curveLegend"></div>
+<figcaption><b>Fig. 6.8 —</b> Résultats réels (graine 0). Le modèle préentraîné atteint 94 % avec 16 exemples ; le modèle entraîné à partir de zéro a besoin de 1 024 exemples pour atteindre 90 %. La valeur du préentraînement est un <em>gain en données</em>, qui diminue quand les étiquettes abondent.</figcaption></figure>
+<details class="reveal"><summary>Cellule 8 · Mémoire : états d’Adam mesurés</summary><div class="answer"><pre class="code"><code># CELLULE 8 — Mémoire : paramètres entraînés et états d&#x27;Adam, mesurés plutôt que supposés.
+def optimizer_state_numel(model):
+    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=1e-3)
+    loss = F.cross_entropy(model(X_tr[:8]), z_tr[:8]); loss.backward(); opt.step()
+    return sum(v.numel() for s in opt.state.values() for v in s.values() if torch.is_tensor(v) and v.dim() &gt; 0)
+
+for m in [&#x27;full&#x27;, &#x27;lora-4&#x27;]:
+    model = adapt(m, 0, steps=1)[0]
+    print(f&#x27;{m:7s} entraînés : {trainable(model):7d} ; états Adam : {optimizer_state_numel(model):7d}&#x27;)
+
+def training_bytes(n_params, n_trainable, weight_bytes=2):
+    &quot;&quot;&quot;Poids (précision de stockage) + gradients, états Adam (m, v) et copie fp32 des paramètres entraînés.&quot;&quot;&quot;
+    return n_params * weight_bytes + n_trainable * (2 + 4 + 4 + 4)
+N = 7e9
+for label, wb, frac in [(&#x27;ajustement complet, 16 bits&#x27;, 2, 1.), (&#x27;LoRA, base 16 bits&#x27;, 2, .005), (&#x27;QLoRA, base 4 bits&#x27;, .5, .005)]:
+    print(f&#x27;{label:30s} ≈ {training_bytes(N, frac * N, wb) / 2**30:6.1f} Gio (hors activations)&#x27;)</code></pre></div></details>
+<div class="callout"><div class="tag">Un détail qui compte</div><p>L’ajustement complet entraîne 105 500 paramètres, mais Adam ne crée que 207 880 nombres d’état, et non 211 000 : la tête de modèle de langage, inutilisée par la classification, ne reçoit aucun gradient et n’a pas d’état. Mesurer plutôt que supposer.</p></div>
+<details class="reveal"><summary>Cellule 9 · Quantification du modèle</summary><div class="answer"><pre class="code"><code># CELLULE 9 — Quantification après entraînement : arrondir les poids et mesurer.
+def fake_quant(W, bits, group=None):
+    &quot;&quot;&quot;Quantification symétrique absmax, par tenseur (group=None) ou par groupes de colonnes.&quot;&quot;&quot;
+    qmax = 2 ** (bits - 1) - 1
+    Wg = W.reshape(-1, group) if group else W.reshape(1, -1)
+    scale = Wg.abs().amax(dim=1, keepdim=True).clamp_min(1e-12) / qmax
+    return (torch.round(Wg / scale).clamp(-qmax, qmax) * scale).reshape(W.shape)
+
+def quantized(model, bits, group=None):
+    q = copy.deepcopy(model)
+    with torch.no_grad():
+        for blk in q.blocks:
+            for lin in (blk.qkv, blk.proj, blk.fc1, blk.fc2):
+                lin.weight.copy_(fake_quant(lin.weight, bits, group))
+    return q
+
+print(f&#x27;{&quot;référence 32 bits&quot;:24s} perte LM {lm_loss(pretrained, X_lm_val):.4f}&#x27;)
+for bits, group in [(8, None), (4, None), (4, 32), (3, None), (3, 32)]:
+    name = f&#x27;int{bits} &#x27; + (&#x27;par tenseur&#x27; if group is None else f&#x27;groupes de {group}&#x27;)
+    print(f&#x27;{name:24s} perte LM {lm_loss(quantized(pretrained, bits, group), X_lm_val):.4f}&#x27;)</code></pre></div></details>
+<details class="reveal"><summary>Cellule 10 · Valeur aberrante</summary><div class="answer"><pre class="code"><code># CELLULE 10 — Une valeur aberrante suffit à ruiner la quantification par tenseur.
+r = np.random.default_rng(0)
+W = r.normal(0, .02, size=(256, 256))
+W_out = W.copy(); W_out[3, 7] = 2.0                       # une seule valeur 100 fois plus grande
+def rel_err(W, bits, group=None):
+    Wq = fake_quant(torch.tensor(W), bits, group).numpy()
+    return np.linalg.norm(W - Wq) / np.linalg.norm(W)
+for name, M in [(&#x27;sans valeur aberrante&#x27;, W), (&#x27;avec une valeur aberrante&#x27;, W_out)]:
+    print(f&#x27;{name:26s} int8/tenseur {rel_err(M, 8):.4f} | int4/tenseur {rel_err(M, 4):.4f} | int4/groupes 32 {rel_err(M, 4, 32):.4f}&#x27;)</code></pre></div></details>
+<div class="table-scroll"><table><thead><tr><th>Poids des blocs</th><th>Perte LM</th><th>Écart</th></tr></thead><tbody>
+<tr><td>32 bits (référence)</td><td>1,5589</td><td>—</td></tr><tr><td>int8 par tenseur</td><td>1,5589</td><td>&lt; 0,0001</td></tr><tr><td>int4 par tenseur</td><td>1,5708</td><td>+ 0,0119</td></tr><tr><td>int4 par groupes de 32</td><td>1,5630</td><td>+ 0,0041</td></tr><tr><td>int3 par tenseur</td><td>1,6489</td><td>+ 0,0900</td></tr><tr><td>int3 par groupes de 32</td><td>1,5825</td><td>+ 0,0236</td></tr></tbody></table></div>
+<p class="small">Erreur relative sur une matrice 256 × 256 : sans valeur aberrante, 1,1 % (int8), 19,5 % (int4 par tenseur), 9,8 % (int4 par groupes) ; avec une valeur aberrante, 21,2 %, <strong>93,1 %</strong> et 9,4 %.</p>
+<button class="action" data-phase-of="tp" data-phase="3">Distillation et livrable →</button></section>
+
+<section class="phase" data-group="tp" id="lab4"><div class="tag">Atelier 4 · prolongements</div><h3>Distiller, puis aller plus loin.</h3>
+<details class="reveal"><summary>Cellule 11 · Distillation d’un élève 7 fois plus petit</summary><div class="answer"><pre class="code"><code># CELLULE 11 — Distillation : un élève deux fois plus étroit apprend des probabilités du maître.
+def distill(alpha, T_kd=2.0, steps=1500, seed=0):
+    torch.manual_seed(seed)
+    student = TinyGPT(d=32, h=2, layers=1)
+    opt = torch.optim.AdamW(student.parameters(), lr=3e-3, weight_decay=.01)
+    gen = torch.Generator().manual_seed(seed)
+    for step in range(steps):
+        xb = X_pre[torch.randint(0, len(X_pre), (64,), generator=gen)]
+        s = student(xb[:, :-1]).reshape(-1, V)
+        hard = F.cross_entropy(s, xb[:, 1:].reshape(-1))
+        with torch.no_grad():
+            t = pretrained(xb[:, :-1]).reshape(-1, V)
+        soft = F.kl_div(F.log_softmax(s / T_kd, -1), F.softmax(t / T_kd, -1), reduction=&#x27;batchmean&#x27;) * T_kd**2
+        loss = (1 - alpha) * hard + alpha * soft
+        opt.zero_grad(set_to_none=True); loss.backward(); opt.step()
+    return student
+
+print(&#x27;Paramètres maître / élève :&#x27;, sum(p.numel() for p in pretrained.parameters()),
+      sum(p.numel() for p in TinyGPT(d=32, h=2, layers=1).parameters()))
+for alpha in [0., .5, .9]:
+    print(f&#x27;α = {alpha:.1f} : perte LM de l’élève {lm_loss(distill(alpha), X_lm_val):.3f}&#x27;)</code></pre></div></details>
+<p><strong>Résultat de référence.</strong> Maître : 105 240 paramètres, perte 1,559. Élève (15 352 paramètres) entraîné sur les seules données : 1,700 ; avec \(\alpha=0{,}5\) : 1,683 ; avec \(\alpha=0{,}9\) : 1,680. Le gain est réel mais modeste sur une seule graine : refaites l’expérience sur trois graines avant de conclure (ch. 3), et faites varier \(T\).</p>
+<ol><li><strong>LP-FT.</strong> Entraînez la sonde, puis ajustez tout le modèle à partir de cette tête. L’oubli et l’accuracy changent-ils par rapport à l’ajustement complet direct ?</li><li><strong>Rang et pas.</strong> Pour LoRA, choisissez le pas de chaque rang sur une partition de validation séparée (ch. 3), puis comparez à nouveau les rangs 1, 4 et 16.</li><li><strong>QLoRA miniature.</strong> Quantifiez le tronc en int4 par groupes (cellule 9), puis entraînez LoRA par-dessus. Quelle accuracy perd-on ?</li><li><strong>Décalage de domaine.</strong> Générez une tâche cible avec des thèmes nouveaux (autre graine pour les perturbations). Le préentraînement aide-t-il encore ? Quelle stratégie souffre le plus ?</li></ol>
+<div class="callout"><div class="tag">Livrable · Note de décision, 3 pages</div><ol><li>Le préentraînement : courbe, position par rapport aux trois références, interprétation.</li><li>Le tableau des stratégies : accuracy, paramètres entraînés, états d’optimiseur, oubli.</li><li>La courbe d’efficacité en étiquettes et votre recommandation selon \(n\).</li><li>Le budget mémoire d’un modèle de 7 milliards de paramètres et la quantification choisie.</li><li>Une limite du protocole et l’expérience qui pourrait changer votre recommandation.</li></ol><p>Barème : protocole et équité 30 % ; mesures 25 % ; interprétation 30 % ; clarté 15 %.</p></div>
+<p id="notesStatus" class="small" role="status">Vos notes sont enregistrées dans ce navigateur et peuvent être exportées.</p>
+<p class="small">Validation du support : toutes les cellules ont été exécutées (PyTorch 2.x, CPU) ; les figures et tableaux de ce volet en reprennent les sorties.</p></section>
+<nav class="chapter-nav" aria-label="Chapitres"><a href="Chapitre_5_Transformers.html">← Chapitre 5 · Transformers</a><a href="Chapitre_7_SSL_JEPA.html">Chapitre 7 · Auto-supervision et JEPA →</a></nav>
+</article></div></section>
+</div></main>
+
+<script type="application/json" id="notebooks">{"complete": {"cells": [{"cell_type": "markdown", "metadata": {}, "id": "ch6-m1", "source": ["# Chapitre 6 — Préentraînement, transfert et efficacité\n", "## Atelier corrigé · M2 IA\n", "PyTorch CPU, NumPy, Matplotlib. Prédire → mesurer → expliquer.\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c1", "source": ["import math, time, copy\n", "import numpy as np\n", "import torch\n", "from torch import nn\n", "import torch.nn.functional as F\n", "import matplotlib.pyplot as plt\n", "torch.set_num_threads(4)\n", "print('PyTorch :', torch.__version__)\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m2", "source": ["## Atelier 1 · Un langage synthétique à quatre thèmes\n", "Le thème n’est jamais donné au modèle de langage.\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c2", "source": ["# CELLULE 2 — Un « langage » synthétique : quatre thèmes, chacun avec ses transitions.\n", "V, T, K = 24, 32, 4                       # vocabulaire, longueur, nombre de thèmes\n", "g = torch.Generator().manual_seed(0)\n", "base = 2.0 * torch.randn(V, V, generator=g)           # structure commune à tous les thèmes\n", "TRANS = (base + 1.5 * torch.randn(K, V, V, generator=g)).softmax(-1)   # (K, V, V) : un écart propre à chaque thème\n", "\n", "def sample(n, seed):\n", "    gen = torch.Generator().manual_seed(seed)\n", "    z = torch.randint(0, K, (n,), generator=gen)\n", "    x = torch.empty(n, T, dtype=torch.long)\n", "    x[:, 0] = torch.randint(0, V, (n,), generator=gen)\n", "    for t in range(1, T):\n", "        x[:, t] = torch.multinomial(TRANS[z, x[:, t - 1]], 1, generator=gen).squeeze(1)\n", "    return x, z\n", "\n", "X_pre, _ = sample(20000, seed=1)          # préentraînement : aucune étiquette utilisée\n", "X_lm_val, _ = sample(2000, seed=2)        # mesure de la perte de langage (oubli)\n", "X_tr, z_tr = sample(64, seed=3)           # tâche cible : 64 exemples étiquetés\n", "X_te, z_te = sample(4000, seed=4)\n", "print('Préentraînement', tuple(X_pre.shape), '; cible', tuple(X_tr.shape), '; test', tuple(X_te.shape))\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m3", "source": ["### Préentraîner un petit GPT\n", "Prédisez la perte de validation : plus proche de 1,860 ou de 1,520 ?\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c3", "source": ["# CELLULE 3 — Un petit décodeur causal (type GPT) et son préentraînement.\n", "class Block(nn.Module):\n", "    def __init__(self, d, h):\n", "        super().__init__()\n", "        self.h = h\n", "        self.ln1, self.ln2 = nn.LayerNorm(d), nn.LayerNorm(d)\n", "        self.qkv, self.proj = nn.Linear(d, 3 * d), nn.Linear(d, d)\n", "        self.fc1, self.fc2 = nn.Linear(d, 4 * d), nn.Linear(4 * d, d)\n", "    def forward(self, x):\n", "        B, n, d = x.shape\n", "        q, k, v = self.qkv(self.ln1(x)).view(B, n, 3, self.h, d // self.h).permute(2, 0, 3, 1, 4)\n", "        a = F.scaled_dot_product_attention(q, k, v, is_causal=True)\n", "        x = x + self.proj(a.transpose(1, 2).reshape(B, n, d))\n", "        return x + self.fc2(F.gelu(self.fc1(self.ln2(x))))\n", "\n", "class TinyGPT(nn.Module):\n", "    def __init__(self, d=64, h=4, layers=2):\n", "        super().__init__()\n", "        self.emb, self.pos = nn.Embedding(V, d), nn.Parameter(0.02 * torch.randn(T, d))\n", "        self.blocks = nn.ModuleList(Block(d, h) for _ in range(layers))\n", "        self.ln, self.lm_head = nn.LayerNorm(d), nn.Linear(d, V)\n", "    def features(self, x):\n", "        h = self.emb(x) + self.pos[:x.shape[1]]\n", "        for b in self.blocks:\n", "            h = b(h)\n", "        return self.ln(h)                          # (B, n, d)\n", "    def forward(self, x):\n", "        return self.lm_head(self.features(x))\n", "\n", "def lm_loss(model, X):\n", "    with torch.no_grad():\n", "        logits = model(X[:, :-1])\n", "        return F.cross_entropy(logits.reshape(-1, V), X[:, 1:].reshape(-1)).item()\n", "\n", "def pretrain(steps=2500, seed=0):\n", "    torch.manual_seed(seed)\n", "    model = TinyGPT()\n", "    opt = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=.01)\n", "    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=3e-3, total_steps=steps, pct_start=.1)\n", "    gen, history = torch.Generator().manual_seed(seed), []\n", "    for step in range(steps):\n", "        xb = X_pre[torch.randint(0, len(X_pre), (64,), generator=gen)]\n", "        loss = F.cross_entropy(model(xb[:, :-1]).reshape(-1, V), xb[:, 1:].reshape(-1))\n", "        opt.zero_grad(set_to_none=True); loss.backward(); opt.step(); sched.step()\n", "        if step % 50 == 0:\n", "            history.append((step, loss.item()))\n", "    return model, history\n", "\n", "t0 = time.time()\n", "pretrained, pre_history = pretrain()\n", "print(f'Préentraînement : {time.time()-t0:.0f} s ; perte LM validation = {lm_loss(pretrained, X_lm_val):.3f}',\n", "      f'(uniforme : log V = {math.log(V):.3f})')\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m4", "source": ["## Atelier 2 · LoRA et tête de classification\n", "Vérifiez qu’avec B = 0 le modèle adapté calcule exactement la même chose que le modèle préentraîné.\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c4", "source": ["# CELLULE 4 — LoRA : W = W₀ + (α/r)·B A, avec B initialisée à zéro.\n", "class LoRALinear(nn.Module):\n", "    def __init__(self, base, r, alpha=None):\n", "        super().__init__()\n", "        self.base, self.r, self.scale = base, r, (alpha or 2 * r) / r\n", "        for p in self.base.parameters():\n", "            p.requires_grad_(False)\n", "        self.A = nn.Parameter(torch.randn(r, base.in_features) / math.sqrt(base.in_features))\n", "        self.B = nn.Parameter(torch.zeros(base.out_features, r))\n", "    def forward(self, x):\n", "        return self.base(x) + self.scale * (x @ self.A.T) @ self.B.T\n", "    def merged_weight(self):\n", "        return self.base.weight + self.scale * self.B @ self.A\n", "\n", "def add_lora(model, r):\n", "    for blk in model.blocks:\n", "        for name in ('qkv', 'proj', 'fc1', 'fc2'):\n", "            setattr(blk, name, LoRALinear(getattr(blk, name), r))\n", "    return model\n", "\n", "class Classifier(nn.Module):\n", "    \"\"\"Tronc (préentraîné ou non) + tête linéaire sur la moyenne des positions.\"\"\"\n", "    def __init__(self, trunk):\n", "        super().__init__()\n", "        self.trunk, self.head = trunk, nn.Linear(64, K)\n", "    def forward(self, x):\n", "        return self.head(self.trunk.features(x).mean(1))\n", "\n", "def trainable(model):\n", "    return sum(p.numel() for p in model.parameters() if p.requires_grad)\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m5", "source": ["### Cinq stratégies, 64 exemples, trois graines\n", "Classez les stratégies avant d’exécuter.\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c5", "source": ["# CELLULE 5 — Cinq stratégies, trois graines, même budget : 300 mises à jour sur 64 exemples.\n", "def adapt(method, seed, Xs=None, zs=None, steps=300):\n", "    Xs, zs = (X_tr, z_tr) if Xs is None else (Xs, zs)\n", "    torch.manual_seed(seed)\n", "    trunk = TinyGPT() if method == 'scratch' else copy.deepcopy(pretrained)\n", "    if method == 'probe' or method.startswith('lora'):\n", "        for p in trunk.parameters():\n", "            p.requires_grad_(False)                 # tronc gelé\n", "    if method.startswith('lora'):\n", "        add_lora(trunk, int(method.split('-')[1]))\n", "    model = Classifier(trunk)\n", "    lr = {'scratch': 1e-3, 'probe': 1e-2, 'full': 3e-4}.get(method, 3e-3)\n", "    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=.01)\n", "    gen = torch.Generator().manual_seed(seed)\n", "    for step in range(steps):\n", "        idx = torch.randperm(len(Xs), generator=gen)[:64]\n", "        loss = F.cross_entropy(model(Xs[idx]), zs[idx])\n", "        opt.zero_grad(set_to_none=True); loss.backward(); opt.step()\n", "    with torch.no_grad():\n", "        acc = (model(X_te).argmax(-1) == z_te).float().mean().item()\n", "    return model, acc\n", "\n", "methods = ['scratch', 'probe', 'full', 'lora-1', 'lora-4', 'lora-16']\n", "results = {}\n", "for m in methods:\n", "    runs = [adapt(m, s) for s in range(3)]\n", "    results[m] = dict(acc=[a for _, a in runs], params=trainable(runs[0][0]), model=runs[0][0])\n", "    print(f'{m:8s} accuracy {np.mean(results[m][\"acc\"]):.3f} ± {np.std(results[m][\"acc\"]):.3f}'\n", "          f'   paramètres entraînés : {results[m][\"params\"]:6d}')\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m6", "source": ["### Oubli\n", "Que devient le modèle de langage après chaque adaptation ?\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c6", "source": ["# CELLULE 6 — Oubli : que devient le modèle de langage après adaptation ?\n", "def lm_loss_of(model):\n", "    trunk = model.trunk\n", "    with torch.no_grad():\n", "        logits = trunk.lm_head(trunk.features(X_lm_val[:, :-1]))   # même tête LM, tronc adapté\n", "        return F.cross_entropy(logits.reshape(-1, V), X_lm_val[:, 1:].reshape(-1)).item()\n", "\n", "forgetting = {'préentraîné': lm_loss(pretrained, X_lm_val)}\n", "for m in ['probe', 'full', 'lora-4']:\n", "    forgetting[m] = lm_loss_of(results[m]['model'])\n", "lora_layers = [mod for mod in results['lora-4']['model'].modules() if isinstance(mod, LoRALinear)]\n", "scales = [mod.scale for mod in lora_layers]\n", "for mod in lora_layers:\n", "    mod.scale = 0.                                   # on retire B·A\n", "forgetting['lora-4, adaptateurs retirés'] = lm_loss_of(results['lora-4']['model'])\n", "for mod, s in zip(lora_layers, scales):\n", "    mod.scale = s\n", "for k, v in forgetting.items():\n", "    print(f'{k:28s} perte LM : {v:.3f}')\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m7", "source": ["## Atelier 3 · Efficacité en étiquettes (≈ 3 min)\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c7", "source": ["# CELLULE 7 — Efficacité en étiquettes : la valeur du préentraînement dépend de n.\n", "X_big, z_big = sample(1024, seed=5)\n", "label_curve = {m: [] for m in ['scratch', 'probe', 'full', 'lora-4']}\n", "for n in [16, 64, 256, 1024]:\n", "    for m in label_curve:\n", "        label_curve[m].append((n, adapt(m, 0, X_big[:n], z_big[:n])[1]))\n", "    print(n, {m: round(v[-1][1], 3) for m, v in label_curve.items()})\n", "for m, pts in label_curve.items():\n", "    plt.semilogx(*zip(*pts), 'o-', label=m)\n", "plt.xlabel('Exemples étiquetés'); plt.ylabel('Accuracy test'); plt.legend(); plt.show()\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m8", "source": ["### Mémoire : ce qu’Adam stocke vraiment\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c8", "source": ["# CELLULE 8 — Mémoire : paramètres entraînés et états d'Adam, mesurés plutôt que supposés.\n", "def optimizer_state_numel(model):\n", "    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=1e-3)\n", "    loss = F.cross_entropy(model(X_tr[:8]), z_tr[:8]); loss.backward(); opt.step()\n", "    return sum(v.numel() for s in opt.state.values() for v in s.values() if torch.is_tensor(v) and v.dim() > 0)\n", "\n", "for m in ['full', 'lora-4']:\n", "    model = adapt(m, 0, steps=1)[0]\n", "    print(f'{m:7s} entraînés : {trainable(model):7d} ; états Adam : {optimizer_state_numel(model):7d}')\n", "\n", "def training_bytes(n_params, n_trainable, weight_bytes=2):\n", "    \"\"\"Poids (précision de stockage) + gradients, états Adam (m, v) et copie fp32 des paramètres entraînés.\"\"\"\n", "    return n_params * weight_bytes + n_trainable * (2 + 4 + 4 + 4)\n", "N = 7e9\n", "for label, wb, frac in [('ajustement complet, 16 bits', 2, 1.), ('LoRA, base 16 bits', 2, .005), ('QLoRA, base 4 bits', .5, .005)]:\n", "    print(f'{label:30s} ≈ {training_bytes(N, frac * N, wb) / 2**30:6.1f} Gio (hors activations)')\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m9", "source": ["### Quantification après entraînement\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c9", "source": ["# CELLULE 9 — Quantification après entraînement : arrondir les poids et mesurer.\n", "def fake_quant(W, bits, group=None):\n", "    \"\"\"Quantification symétrique absmax, par tenseur (group=None) ou par groupes de colonnes.\"\"\"\n", "    qmax = 2 ** (bits - 1) - 1\n", "    Wg = W.reshape(-1, group) if group else W.reshape(1, -1)\n", "    scale = Wg.abs().amax(dim=1, keepdim=True).clamp_min(1e-12) / qmax\n", "    return (torch.round(Wg / scale).clamp(-qmax, qmax) * scale).reshape(W.shape)\n", "\n", "def quantized(model, bits, group=None):\n", "    q = copy.deepcopy(model)\n", "    with torch.no_grad():\n", "        for blk in q.blocks:\n", "            for lin in (blk.qkv, blk.proj, blk.fc1, blk.fc2):\n", "                lin.weight.copy_(fake_quant(lin.weight, bits, group))\n", "    return q\n", "\n", "print(f'{\"référence 32 bits\":24s} perte LM {lm_loss(pretrained, X_lm_val):.4f}')\n", "for bits, group in [(8, None), (4, None), (4, 32), (3, None), (3, 32)]:\n", "    name = f'int{bits} ' + ('par tenseur' if group is None else f'groupes de {group}')\n", "    print(f'{name:24s} perte LM {lm_loss(quantized(pretrained, bits, group), X_lm_val):.4f}')\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m10", "source": ["### Une valeur aberrante\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c10", "source": ["# CELLULE 10 — Une valeur aberrante suffit à ruiner la quantification par tenseur.\n", "r = np.random.default_rng(0)\n", "W = r.normal(0, .02, size=(256, 256))\n", "W_out = W.copy(); W_out[3, 7] = 2.0                       # une seule valeur 100 fois plus grande\n", "def rel_err(W, bits, group=None):\n", "    Wq = fake_quant(torch.tensor(W), bits, group).numpy()\n", "    return np.linalg.norm(W - Wq) / np.linalg.norm(W)\n", "for name, M in [('sans valeur aberrante', W), ('avec une valeur aberrante', W_out)]:\n", "    print(f'{name:26s} int8/tenseur {rel_err(M, 8):.4f} | int4/tenseur {rel_err(M, 4):.4f} | int4/groupes 32 {rel_err(M, 4, 32):.4f}')\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m11", "source": ["## Atelier 4 · Distillation (≈ 1 min)\n", "Refaites l’expérience sur plusieurs graines avant de conclure.\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c11", "source": ["# CELLULE 11 — Distillation : un élève deux fois plus étroit apprend des probabilités du maître.\n", "def distill(alpha, T_kd=2.0, steps=1500, seed=0):\n", "    torch.manual_seed(seed)\n", "    student = TinyGPT(d=32, h=2, layers=1)\n", "    opt = torch.optim.AdamW(student.parameters(), lr=3e-3, weight_decay=.01)\n", "    gen = torch.Generator().manual_seed(seed)\n", "    for step in range(steps):\n", "        xb = X_pre[torch.randint(0, len(X_pre), (64,), generator=gen)]\n", "        s = student(xb[:, :-1]).reshape(-1, V)\n", "        hard = F.cross_entropy(s, xb[:, 1:].reshape(-1))\n", "        with torch.no_grad():\n", "            t = pretrained(xb[:, :-1]).reshape(-1, V)\n", "        soft = F.kl_div(F.log_softmax(s / T_kd, -1), F.softmax(t / T_kd, -1), reduction='batchmean') * T_kd**2\n", "        loss = (1 - alpha) * hard + alpha * soft\n", "        opt.zero_grad(set_to_none=True); loss.backward(); opt.step()\n", "    return student\n", "\n", "print('Paramètres maître / élève :', sum(p.numel() for p in pretrained.parameters()),\n", "      sum(p.numel() for p in TinyGPT(d=32, h=2, layers=1).parameters()))\n", "for alpha in [0., .5, .9]:\n", "    print(f'α = {alpha:.1f} : perte LM de l’élève {lm_loss(distill(alpha), X_lm_val):.3f}')\n"]}], "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}, "language_info": {"name": "python"}}, "nbformat": 4, "nbformat_minor": 5}, "starter": {"cells": [{"cell_type": "markdown", "metadata": {}, "id": "ch6-m1", "source": ["# Chapitre 6 — Préentraînement, transfert et efficacité\n", "## Atelier à compléter · M2 IA\n", "PyTorch CPU, NumPy, Matplotlib. Prédire → mesurer → expliquer.\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c1", "source": ["import math, time, copy\n", "import numpy as np\n", "import torch\n", "from torch import nn\n", "import torch.nn.functional as F\n", "import matplotlib.pyplot as plt\n", "torch.set_num_threads(4)\n", "print('PyTorch :', torch.__version__)\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m2", "source": ["## Atelier 1 · Un langage synthétique à quatre thèmes\n", "Le thème n’est jamais donné au modèle de langage.\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c2", "source": ["# CELLULE 2 — Un « langage » synthétique : quatre thèmes, chacun avec ses transitions.\n", "V, T, K = 24, 32, 4                       # vocabulaire, longueur, nombre de thèmes\n", "g = torch.Generator().manual_seed(0)\n", "base = 2.0 * torch.randn(V, V, generator=g)           # structure commune à tous les thèmes\n", "TRANS = (base + 1.5 * torch.randn(K, V, V, generator=g)).softmax(-1)   # (K, V, V) : un écart propre à chaque thème\n", "\n", "def sample(n, seed):\n", "    gen = torch.Generator().manual_seed(seed)\n", "    z = torch.randint(0, K, (n,), generator=gen)\n", "    x = torch.empty(n, T, dtype=torch.long)\n", "    x[:, 0] = torch.randint(0, V, (n,), generator=gen)\n", "    for t in range(1, T):\n", "        x[:, t] = torch.multinomial(TRANS[z, x[:, t - 1]], 1, generator=gen).squeeze(1)\n", "    return x, z\n", "\n", "X_pre, _ = sample(20000, seed=1)          # préentraînement : aucune étiquette utilisée\n", "X_lm_val, _ = sample(2000, seed=2)        # mesure de la perte de langage (oubli)\n", "X_tr, z_tr = sample(64, seed=3)           # tâche cible : 64 exemples étiquetés\n", "X_te, z_te = sample(4000, seed=4)\n", "print('Préentraînement', tuple(X_pre.shape), '; cible', tuple(X_tr.shape), '; test', tuple(X_te.shape))\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m3", "source": ["### Préentraîner un petit GPT\n", "Prédisez la perte de validation : plus proche de 1,860 ou de 1,520 ?\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c3", "source": ["# CELLULE 3 — Un petit décodeur causal (type GPT) et son préentraînement.\n", "class Block(nn.Module):\n", "    def __init__(self, d, h):\n", "        super().__init__()\n", "        self.h = h\n", "        self.ln1, self.ln2 = nn.LayerNorm(d), nn.LayerNorm(d)\n", "        self.qkv, self.proj = nn.Linear(d, 3 * d), nn.Linear(d, d)\n", "        self.fc1, self.fc2 = nn.Linear(d, 4 * d), nn.Linear(4 * d, d)\n", "    def forward(self, x):\n", "        B, n, d = x.shape\n", "        q, k, v = self.qkv(self.ln1(x)).view(B, n, 3, self.h, d // self.h).permute(2, 0, 3, 1, 4)\n", "        a = F.scaled_dot_product_attention(q, k, v, is_causal=True)\n", "        x = x + self.proj(a.transpose(1, 2).reshape(B, n, d))\n", "        return x + self.fc2(F.gelu(self.fc1(self.ln2(x))))\n", "\n", "class TinyGPT(nn.Module):\n", "    def __init__(self, d=64, h=4, layers=2):\n", "        super().__init__()\n", "        self.emb, self.pos = nn.Embedding(V, d), nn.Parameter(0.02 * torch.randn(T, d))\n", "        self.blocks = nn.ModuleList(Block(d, h) for _ in range(layers))\n", "        self.ln, self.lm_head = nn.LayerNorm(d), nn.Linear(d, V)\n", "    def features(self, x):\n", "        h = self.emb(x) + self.pos[:x.shape[1]]\n", "        for b in self.blocks:\n", "            h = b(h)\n", "        return self.ln(h)                          # (B, n, d)\n", "    def forward(self, x):\n", "        return self.lm_head(self.features(x))\n", "\n", "def lm_loss(model, X):\n", "    with torch.no_grad():\n", "        logits = model(X[:, :-1])\n", "        return F.cross_entropy(logits.reshape(-1, V), X[:, 1:].reshape(-1)).item()\n", "\n", "def pretrain(steps=2500, seed=0):\n", "    torch.manual_seed(seed)\n", "    model = TinyGPT()\n", "    opt = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=.01)\n", "    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=3e-3, total_steps=steps, pct_start=.1)\n", "    gen, history = torch.Generator().manual_seed(seed), []\n", "    for step in range(steps):\n", "        xb = X_pre[torch.randint(0, len(X_pre), (64,), generator=gen)]\n", "        loss = F.cross_entropy(model(xb[:, :-1]).reshape(-1, V), xb[:, 1:].reshape(-1))\n", "        opt.zero_grad(set_to_none=True); loss.backward(); opt.step(); sched.step()\n", "        if step % 50 == 0:\n", "            history.append((step, loss.item()))\n", "    return model, history\n", "\n", "t0 = time.time()\n", "pretrained, pre_history = pretrain()\n", "print(f'Préentraînement : {time.time()-t0:.0f} s ; perte LM validation = {lm_loss(pretrained, X_lm_val):.3f}',\n", "      f'(uniforme : log V = {math.log(V):.3f})')\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m4", "source": ["## Atelier 2 · LoRA et tête de classification\n", "Vérifiez qu’avec B = 0 le modèle adapté calcule exactement la même chose que le modèle préentraîné.\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c4", "source": ["# CELLULE 4 — LoRA : W = W₀ + (α/r)·B A, avec B initialisée à zéro.\n", "class LoRALinear(nn.Module):\n", "    def __init__(self, base, r, alpha=None):\n", "        super().__init__()\n", "        self.base, self.r, self.scale = base, r, (alpha or 2 * r) / r\n", "        for p in self.base.parameters():\n", "            p.requires_grad_(False)\n", "        self.A = nn.Parameter(torch.randn(r, base.in_features) / math.sqrt(base.in_features))\n", "        self.B = nn.Parameter(torch.zeros(base.out_features, r))\n", "    def forward(self, x):\n", "        # TODO : sortie de la couche gelée + (α/r)·(x Aᵀ) Bᵀ\n", "        raise NotImplementedError(\"sortie de la couche gelée + (α/r)·(x Aᵀ) Bᵀ\")\n", "\n", "    def merged_weight(self):\n", "        return self.base.weight + self.scale * self.B @ self.A\n", "\n", "def add_lora(model, r):\n", "    for blk in model.blocks:\n", "        for name in ('qkv', 'proj', 'fc1', 'fc2'):\n", "            setattr(blk, name, LoRALinear(getattr(blk, name), r))\n", "    return model\n", "\n", "class Classifier(nn.Module):\n", "    \"\"\"Tronc (préentraîné ou non) + tête linéaire sur la moyenne des positions.\"\"\"\n", "    def __init__(self, trunk):\n", "        super().__init__()\n", "        self.trunk, self.head = trunk, nn.Linear(64, K)\n", "    def forward(self, x):\n", "        return self.head(self.trunk.features(x).mean(1))\n", "\n", "def trainable(model):\n", "    return sum(p.numel() for p in model.parameters() if p.requires_grad)\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m5", "source": ["### Cinq stratégies, 64 exemples, trois graines\n", "Classez les stratégies avant d’exécuter.\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c5", "source": ["# CELLULE 5 — Cinq stratégies, trois graines, même budget : 300 mises à jour sur 64 exemples.\n", "def adapt(method, seed, Xs=None, zs=None, steps=300):\n", "    Xs, zs = (X_tr, z_tr) if Xs is None else (Xs, zs)\n", "    torch.manual_seed(seed)\n", "    trunk = TinyGPT() if method == 'scratch' else copy.deepcopy(pretrained)\n", "    if method == 'probe' or method.startswith('lora'):\n", "        for p in trunk.parameters():\n", "            p.requires_grad_(False)                 # tronc gelé\n", "    if method.startswith('lora'):\n", "        add_lora(trunk, int(method.split('-')[1]))\n", "    model = Classifier(trunk)\n", "    lr = {'scratch': 1e-3, 'probe': 1e-2, 'full': 3e-4}.get(method, 3e-3)\n", "    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=.01)\n", "    gen = torch.Generator().manual_seed(seed)\n", "    for step in range(steps):\n", "        idx = torch.randperm(len(Xs), generator=gen)[:64]\n", "        loss = F.cross_entropy(model(Xs[idx]), zs[idx])\n", "        opt.zero_grad(set_to_none=True); loss.backward(); opt.step()\n", "    with torch.no_grad():\n", "        acc = (model(X_te).argmax(-1) == z_te).float().mean().item()\n", "    return model, acc\n", "\n", "methods = ['scratch', 'probe', 'full', 'lora-1', 'lora-4', 'lora-16']\n", "results = {}\n", "for m in methods:\n", "    runs = [adapt(m, s) for s in range(3)]\n", "    results[m] = dict(acc=[a for _, a in runs], params=trainable(runs[0][0]), model=runs[0][0])\n", "    print(f'{m:8s} accuracy {np.mean(results[m][\"acc\"]):.3f} ± {np.std(results[m][\"acc\"]):.3f}'\n", "          f'   paramètres entraînés : {results[m][\"params\"]:6d}')\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m6", "source": ["### Oubli\n", "Que devient le modèle de langage après chaque adaptation ?\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c6", "source": ["# CELLULE 6 — Oubli : que devient le modèle de langage après adaptation ?\n", "def lm_loss_of(model):\n", "    trunk = model.trunk\n", "    with torch.no_grad():\n", "        logits = trunk.lm_head(trunk.features(X_lm_val[:, :-1]))   # même tête LM, tronc adapté\n", "        return F.cross_entropy(logits.reshape(-1, V), X_lm_val[:, 1:].reshape(-1)).item()\n", "\n", "forgetting = {'préentraîné': lm_loss(pretrained, X_lm_val)}\n", "for m in ['probe', 'full', 'lora-4']:\n", "    forgetting[m] = lm_loss_of(results[m]['model'])\n", "lora_layers = [mod for mod in results['lora-4']['model'].modules() if isinstance(mod, LoRALinear)]\n", "scales = [mod.scale for mod in lora_layers]\n", "for mod in lora_layers:\n", "    mod.scale = 0.                                   # on retire B·A\n", "forgetting['lora-4, adaptateurs retirés'] = lm_loss_of(results['lora-4']['model'])\n", "for mod, s in zip(lora_layers, scales):\n", "    mod.scale = s\n", "for k, v in forgetting.items():\n", "    print(f'{k:28s} perte LM : {v:.3f}')\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m7", "source": ["## Atelier 3 · Efficacité en étiquettes (≈ 3 min)\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c7", "source": ["# CELLULE 7 — Efficacité en étiquettes : la valeur du préentraînement dépend de n.\n", "X_big, z_big = sample(1024, seed=5)\n", "label_curve = {m: [] for m in ['scratch', 'probe', 'full', 'lora-4']}\n", "for n in [16, 64, 256, 1024]:\n", "    for m in label_curve:\n", "        label_curve[m].append((n, adapt(m, 0, X_big[:n], z_big[:n])[1]))\n", "    print(n, {m: round(v[-1][1], 3) for m, v in label_curve.items()})\n", "for m, pts in label_curve.items():\n", "    plt.semilogx(*zip(*pts), 'o-', label=m)\n", "plt.xlabel('Exemples étiquetés'); plt.ylabel('Accuracy test'); plt.legend(); plt.show()\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m8", "source": ["### Mémoire : ce qu’Adam stocke vraiment\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c8", "source": ["# CELLULE 8 — Mémoire : paramètres entraînés et états d'Adam, mesurés plutôt que supposés.\n", "def optimizer_state_numel(model):\n", "    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=1e-3)\n", "    loss = F.cross_entropy(model(X_tr[:8]), z_tr[:8]); loss.backward(); opt.step()\n", "    return sum(v.numel() for s in opt.state.values() for v in s.values() if torch.is_tensor(v) and v.dim() > 0)\n", "\n", "for m in ['full', 'lora-4']:\n", "    model = adapt(m, 0, steps=1)[0]\n", "    print(f'{m:7s} entraînés : {trainable(model):7d} ; états Adam : {optimizer_state_numel(model):7d}')\n", "\n", "def training_bytes(n_params, n_trainable, weight_bytes=2):\n", "    \"\"\"Poids (précision de stockage) + gradients, états Adam (m, v) et copie fp32 des paramètres entraînés.\"\"\"\n", "    return n_params * weight_bytes + n_trainable * (2 + 4 + 4 + 4)\n", "N = 7e9\n", "for label, wb, frac in [('ajustement complet, 16 bits', 2, 1.), ('LoRA, base 16 bits', 2, .005), ('QLoRA, base 4 bits', .5, .005)]:\n", "    print(f'{label:30s} ≈ {training_bytes(N, frac * N, wb) / 2**30:6.1f} Gio (hors activations)')\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m9", "source": ["### Quantification après entraînement\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c9", "source": ["# CELLULE 9 — Quantification après entraînement : arrondir les poids et mesurer.\n", "def fake_quant(W, bits, group=None):\n", "    \"\"\"Quantification symétrique absmax, par tenseur (group=None) ou par groupes de colonnes.\"\"\"\n", "    # TODO : échelle absmax par groupe, arrondi, bornage à ±(2^(b−1) − 1), retour à la forme de W\n", "    raise NotImplementedError(\"échelle absmax par groupe, arrondi, bornage à ±(2^(b−1) − 1), retour à la forme de W\")\n", "\n", "\n", "def quantized(model, bits, group=None):\n", "    q = copy.deepcopy(model)\n", "    with torch.no_grad():\n", "        for blk in q.blocks:\n", "            for lin in (blk.qkv, blk.proj, blk.fc1, blk.fc2):\n", "                lin.weight.copy_(fake_quant(lin.weight, bits, group))\n", "    return q\n", "\n", "print(f'{\"référence 32 bits\":24s} perte LM {lm_loss(pretrained, X_lm_val):.4f}')\n", "for bits, group in [(8, None), (4, None), (4, 32), (3, None), (3, 32)]:\n", "    name = f'int{bits} ' + ('par tenseur' if group is None else f'groupes de {group}')\n", "    print(f'{name:24s} perte LM {lm_loss(quantized(pretrained, bits, group), X_lm_val):.4f}')\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m10", "source": ["### Une valeur aberrante\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c10", "source": ["# CELLULE 10 — Une valeur aberrante suffit à ruiner la quantification par tenseur.\n", "r = np.random.default_rng(0)\n", "W = r.normal(0, .02, size=(256, 256))\n", "W_out = W.copy(); W_out[3, 7] = 2.0                       # une seule valeur 100 fois plus grande\n", "def rel_err(W, bits, group=None):\n", "    Wq = fake_quant(torch.tensor(W), bits, group).numpy()\n", "    return np.linalg.norm(W - Wq) / np.linalg.norm(W)\n", "for name, M in [('sans valeur aberrante', W), ('avec une valeur aberrante', W_out)]:\n", "    print(f'{name:26s} int8/tenseur {rel_err(M, 8):.4f} | int4/tenseur {rel_err(M, 4):.4f} | int4/groupes 32 {rel_err(M, 4, 32):.4f}')\n"]}, {"cell_type": "markdown", "metadata": {}, "id": "ch6-m11", "source": ["## Atelier 4 · Distillation (≈ 1 min)\n", "Refaites l’expérience sur plusieurs graines avant de conclure.\n"]}, {"cell_type": "code", "execution_count": null, "metadata": {}, "outputs": [], "id": "ch6-c11", "source": ["# CELLULE 11 — Distillation : un élève deux fois plus étroit apprend des probabilités du maître.\n", "def distill(alpha, T_kd=2.0, steps=1500, seed=0):\n", "    # TODO : boucle d’entraînement de l’élève : (1 − α)·CE + α·T²·KL(maître ‖ élève) à température T\n", "    raise NotImplementedError(\"boucle d’entraînement de l’élève : (1 − α)·CE + α·T²·KL(maître ‖ élève) à température T\")\n", "\n", "\n", "print('Paramètres maître / élève :', sum(p.numel() for p in pretrained.parameters()),\n", "      sum(p.numel() for p in TinyGPT(d=32, h=2, layers=1).parameters()))\n", "for alpha in [0., .5, .9]:\n", "    print(f'α = {alpha:.1f} : perte LM de l’élève {lm_loss(distill(alpha), X_lm_val):.3f}')\n"]}], "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}, "language_info": {"name": "python"}}, "nbformat": 4, "nbformat_minor": 5}}</script>
+<script src="assets/carnet.js"></script>
+<script>
+// Chapitre 6 — figures et laboratoires.
+(function(){
+const {$,fmt,el,text,rng,gauss,softmax,plot}=window.Carnet;
+const R={"pre":[[0,3.3615],[50,2.3133],[100,1.8821],[150,1.8817],[200,1.7951],[250,1.7675],[300,1.7411],[350,1.737],[400,1.734],[450,1.7054],[500,1.6979],[550,1.7045],[600,1.6513],[650,1.6757],[700,1.5336],[750,1.6828],[800,1.6885],[850,1.636],[900,1.5422],[950,1.6187],[1000,1.6902],[1050,1.5638],[1100,1.5872],[1150,1.5756],[1200,1.6117],[1250,1.6021],[1300,1.5818],[1350,1.6185],[1400,1.538],[1450,1.5653],[1500,1.5145],[1550,1.559],[1600,1.594],[1650,1.5599],[1700,1.5851],[1750,1.508],[1800,1.5436],[1850,1.5224],[1900,1.5254],[1950,1.6016],[2000,1.5466],[2050,1.5413],[2100,1.5331],[2150,1.5517],[2200,1.524],[2250,1.5017],[2300,1.5707],[2350,1.5916],[2400,1.5617],[2450,1.575]],"methods":{"scratch":{"acc":[0.5815,0.549,0.5155],"params":105500},"probe":{"acc":[0.9785,0.9778,0.978],"params":260},"full":{"acc":[0.9417,0.9542,0.9358],"params":105500},"lora-1":{"acc":[0.9638,0.9498,0.9438],"params":2308},"lora-4":{"acc":[0.9283,0.9293,0.948],"params":8452},"lora-16":{"acc":[0.881,0.9,0.9135],"params":33028}},"forgetting":{"préentraîné":1.5589,"probe":1.5589,"full":2.6666,"lora-4":3.0739,"lora-4, adaptateurs retirés":1.5589},"curve":{"scratch":[[16,0.4712],[64,0.6145],[256,0.8207],[1024,0.897]],"probe":[[16,0.938],[64,0.9795],[256,0.984],[1024,0.9887]],"full":[[16,0.9193],[64,0.9315],[256,0.9808],[1024,0.988]],"lora-4":[[16,0.8685],[64,0.939],[256,0.9845],[1024,0.9895]]}};
+const NAMES={scratch:['à partir de zéro','var(--ochre)'],probe:['sonde linéaire','var(--green)'],full:['ajustement complet','var(--blue)'],'lora-1':['LoRA r = 1','var(--muted)'],'lora-4':['LoRA r = 4','var(--muted)'],'lora-16':['LoRA r = 16','var(--muted)']};
+const sup=n=>String(n).split('').map(c=>'⁰¹²³⁴⁵⁶⁷⁸⁹'[c]||'⁻').join('');
+const sci=v=>{const e=Math.floor(Math.log10(v)+1e-9),m=v/Math.pow(10,e);return fmt(m,1)+' × 10'+sup(e)};
+const big=v=>v>=1e12?fmt(v/1e12,1)+' billions':v>=1e9?fmt(v/1e9,1)+' milliards':v>=1e6?fmt(v/1e6,1)+' M':fmt(v,0);
+const bytes=b=>{const u=['o','Kio','Mio','Gio','Tio'];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++}return fmt(b,b<10?2:1)+' '+u[i]};
+
+// ---------- 6.2 · Objectifs ----------
+(()=>{const svg=$('#objPlot'),W=['Le','chat','dort','sur','le','tapis','rouge'],cw=58,x0=232;
+ const rows=[['Causal (GPT)',W.map((w,i)=>i<6?'v':'-'),'chaque position prédit la suivante'],['Masqué (BERT)',W.map((w,i)=>i===1||i===5?'m':'v'),'[MASK] à 15 % des positions'],['Segments (T5)',W.map((w,i)=>i===2||i===3?'s':'v'),'segment → sentinelle ⟨X⟩, régénéré']];
+ rows.forEach(([name,kind,note],r)=>{const y=20+r*78;text(svg,10,y+26,name,'axlabel');text(svg,10,y+44,note,'tick');
+  W.forEach((w,i)=>{const x=x0+i*cw,k=kind[i];const cls=k==='v'?'box-a':k==='-'?'box':'box-b';el('rect',{x,y:y+10,width:cw-8,height:30,rx:5,class:cls},svg);
+   const lab=k==='m'?'[MASK]':k==='s'?(i===2?'⟨X⟩':''):w;text(svg,x+(cw-8)/2,y+29,lab,'lbl',{});
+   if(r===0&&i<6)el('path',{d:`M${x+cw-14} ${y+50}Q${x+cw-4} ${y+64} ${x+cw+18} ${y+42}`,class:'arrow'},svg);
+   if(k==='m'||(k==='s'&&i===2))text(svg,x+(cw-8)/2,y+58,k==='m'?'→ '+w:'→ dort sur','tick',{'text-anchor':'middle',fill:'var(--ochre)'})});});
+})();
+
+// ---------- 6.3 · Lois d'échelle ----------
+const CH={E:1.69,A:406.4,B:410.7,a:.34,b:.28};
+const Lnd=(N,D)=>CH.E+CH.A/Math.pow(N,CH.a)+CH.B/Math.pow(D,CH.b);
+function optN(C){const G=Math.pow(CH.a*CH.A/(CH.b*CH.B),1/(CH.a+CH.b));return G*Math.pow(C/6,CH.b/(CH.a+CH.b))}
+function drawScaling(){
+ const e=+$('#sC').value,C=Math.pow(10,e);$('#sCOut').textContent=sci(C)+' FLOPs';
+ const Ns=[];for(let x=6;x<=13;x+=.05)Ns.push(Math.pow(10,x));
+ const budgets=[e-2,e-1,e,e+1].filter(v=>v>=17.5&&v<=26);
+ const series=budgets.map(b=>({pts:Ns.map(N=>[N,Lnd(N,Math.pow(10,b)/(6*N))]).filter(p=>p[1]<4.15),cls:b===e?'s-a':'s-d'}));
+ const t=plot($('#scalingPlot'),{w:640,h:300,x:[1e6,1e13],y:[1.8,4.2],xlog:true,xticks:[1e6,1e8,1e10,1e12],yticks:[2,2.5,3,3.5,4],xlabel:'paramètres N (le reste du budget va aux données : D = C / 6N)',ylabel:'perte prédite',fmtx:v=>'10'+sup(Math.round(Math.log10(v))),fmty:v=>fmt(v,1),series});
+ budgets.forEach(b=>{const n=optN(Math.pow(10,b)),l=Lnd(n,Math.pow(10,b)/(6*n));el('circle',{cx:t.tx(n),cy:t.ty(l),r:b===e?6:3.5,class:b===e?'f-b':'f-m'},$('#scalingPlot'));if(b!==e)text($('#scalingPlot'),t.tx(n)+6,t.ty(l)-6,sci(Math.pow(10,b)),'tick')});
+ const N=optN(C),D=C/(6*N);
+ $('#sKpis').innerHTML=[[big(N),'paramètres optimaux N*'],[big(D),'jetons optimaux D*'],[fmt(D/N,0),'jetons par paramètre'],[fmt(Lnd(N,D),3),'perte prédite']].map(([v,l])=>`<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join('');
+}
+$('#sC').oninput=drawScaling;drawScaling();
+
+// ---------- 6.5 · Figure LoRA ----------
+(()=>{const svg=$('#loraFig'),g=gauss(rng(3)),cell=9;
+ const mat=(x,y,rows,cols,cls,op)=>{for(let i=0;i<rows;i++)for(let j=0;j<cols;j++){el('rect',{x:x+j*cell,y:y+i*cell,width:cell,height:cell,class:'cell',fill:cls,'fill-opacity':(op?op:.15+.6*Math.abs(Math.tanh(g()))).toFixed(2)},svg)}};
+ mat(20,25,16,16,'var(--blue)');text(svg,92,185,'W₀ ∈ ℝ^(d×k)','lbl-m');text(svg,92,205,'gelée','tick',{'text-anchor':'middle'});
+ el('path',{d:'M78 10h28v-0M84 10v-6a8 8 0 0 1 16 0v6',class:'st-m',fill:'none','stroke-width':2},svg);el('rect',{x:80,y:9,width:24,height:14,rx:2,class:'f-m'},svg);
+ text(svg,200,100,'+','lbl-m',{'font-size':'28'});text(svg,250,100,'α/r','lbl-m');
+ mat(285,25,16,2,'var(--ochre)');text(svg,294,185,'B','lbl-m');text(svg,294,205,'d × r, init. 0','tick',{'text-anchor':'middle'});
+ mat(325,25,2,16,'var(--ochre)');text(svg,397,60,'A','lbl-m');text(svg,397,78,'r × k, init. aléatoire','tick',{'text-anchor':'middle'});
+ text(svg,500,95,'=  W, rang(W − W₀) ≤ r','lbl-m');text(svg,520,130,'entraînés : r(d + k)','tick',{'text-anchor':'middle'});text(svg,520,148,'au lieu de d·k','tick',{'text-anchor':'middle'})})();
+
+// ---------- 6.5 · Calculateur LoRA ----------
+function drawLora(){
+ const d=+$('#lD').value,L=+$('#lL').value,r=Math.pow(2,+$('#lR').value);$('#lROut').textContent='r = '+r;
+ const ff=Math.round(8*d/3),attn=$('#lAttn').checked,ffn=$('#lFfn').checked;
+ const total=L*(4*d*d+3*d*ff);let lora=0;if(attn)lora+=L*4*r*(d+d);if(ffn)lora+=L*3*r*(d+ff);
+ $('#lKpis').innerHTML=[[big(total),'paramètres des blocs'],[big(lora),'paramètres LoRA'],[fmt(100*lora/total,lora/total<.001?3:2)+' %','part entraînée'],[bytes(lora*8),'état d’Adam (m, v)'],[bytes(total*8),'état d’Adam, ajustement complet']].map(([v,l])=>`<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join('');
+}
+['lD','lL','lAttn','lFfn'].forEach(id=>$('#'+id).onchange=drawLora);$('#lR').oninput=drawLora;drawLora();
+
+// ---------- 6.6 · Mémoire ----------
+const SIZES=[1e9,3e9,7e9,13e9,34e9,70e9];
+const PARTS=[['poids','var(--blue)'],['gradients','var(--ochre)'],['copie fp32','var(--green)'],['moments Adam','var(--muted)']];
+$('#memLegend').innerHTML=PARTS.map(([n,c])=>`<span><i style="background:${c}"></i>${n}</span>`).join('');
+function drawMem(){
+ const N=SIZES[+$('#mN').value],f=+$('#mFrac').value;$('#mNOut').textContent=big(N)+' de paramètres';
+ const meth=[['Ajustement complet',[2*N,2*N,4*N,8*N]],['LoRA, base 16 bits',[2*N+2*f*N,2*f*N,4*f*N,8*f*N]],['QLoRA, base 4 bits',[.5*N+2*f*N,2*f*N,4*f*N,8*f*N]]];
+ const svg=$('#memPlot');svg.innerHTML='';const x0=170,x1=560,max=Math.max(80e9,...meth.map(m=>m[1].reduce((a,b)=>a+b)))*1.05,sx=v=>x0+(x1-x0)*v/max;
+ [24e9,48e9,80e9].forEach(v=>{el('line',{x1:sx(v),x2:sx(v),y1:20,y2:205,class:'s-d'},svg);text(svg,sx(v),222,fmt(v/1e9,0)+' Go','tick',{'text-anchor':'middle'})});
+ meth.forEach(([name,parts],i)=>{const y=35+i*60;let acc=0;text(svg,x0-10,y+20,name,'tick',{'text-anchor':'end'});
+  parts.forEach((v,j)=>{el('rect',{x:sx(acc),y,width:Math.max(0,sx(acc+v)-sx(acc)),height:32,fill:PARTS[j][1],'fill-opacity':.85},svg);acc+=v});
+  text(svg,sx(acc)+8,y+21,fmt(acc/1e9,1)+' Go','tick')});
+ text(svg,(x0+x1)/2,250,'mémoire hors activations (Go)','axlabel',{'text-anchor':'middle'});
+}
+$('#mN').oninput=drawMem;$('#mFrac').onchange=drawMem;drawMem();
+
+// ---------- 6.7 · Formats flottants ----------
+(()=>{const svg=$('#floatFig'),fmts=[['fp32',1,8,23],['fp16',1,5,10],['bf16',1,8,7]],u=17;
+ fmts.forEach(([n,s,e,m],r)=>{const y=12+r*50;text(svg,10,y+20,n,'axlabel');let x=70;
+  [[s,'var(--ink)','s'],[e,'var(--ochre)','exposant'],[m,'var(--blue)','mantisse']].forEach(([k,c,lab])=>{for(let i=0;i<k;i++)el('rect',{x:x+i*u,y,width:u-2,height:26,fill:c,'fill-opacity':.75,rx:2},svg);if(k>1)text(svg,x+k*u/2,y+40,lab+' ('+k+')','tick',{'text-anchor':'middle'});x+=k*u+4});});})();
+
+// ---------- 6.7 · Quantification ----------
+const QW=(()=>{const g=gauss(rng(11));return Array.from({length:4096},()=>.02*g())})();
+function quant(w,bits,group){const q=Math.pow(2,bits-1)-1,out=new Array(w.length),G=group||w.length;for(let s=0;s<w.length;s+=G){let m=0;for(let i=s;i<Math.min(s+G,w.length);i++)m=Math.max(m,Math.abs(w[i]));const d=Math.max(m,1e-12)/q;for(let i=s;i<Math.min(s+G,w.length);i++)out[i]=d*Math.max(-q,Math.min(q,Math.round(w[i]/d)))}return out}
+function drawQuant(){
+ const bits=+$('#qBits').value,out=$('#qOutlier').checked,grp=$('#qGroup').checked;$('#qBitsOut').textContent=bits+' bits';
+ const w=QW.slice();if(out)w[777]=2.0;const wq=quant(w,bits,grp?32:null);
+ let num=0,den=0,zeros=0;w.forEach((v,i)=>{num+=(v-wq[i])**2;den+=v*v;if(wq[i]===0)zeros++});
+ const svg=$('#quantPlot');svg.innerHTML='';const x0=40,x1=620,lo=-.09,hi=.09,sx=v=>x0+(x1-x0)*(v-lo)/(hi-lo),nb=72,h=new Array(nb).fill(0),hq=new Array(nb).fill(0);
+ w.forEach((v,i)=>{const b=Math.floor((v-lo)/(hi-lo)*nb);if(b>=0&&b<nb)h[b]++;const c=Math.floor((wq[i]-lo)/(hi-lo)*nb);if(c>=0&&c<nb)hq[c]++});
+ const mx=Math.max(...h),sy=v=>200-170*Math.min(1,v/mx);
+ h.forEach((v,b)=>el('rect',{x:x0+b*(x1-x0)/nb,y:sy(v),width:(x1-x0)/nb-1,height:200-sy(v),fill:'var(--blue)','fill-opacity':.45},svg));
+ hq.forEach((v,b)=>{if(v)el('rect',{x:x0+b*(x1-x0)/nb+1,y:sy(v),width:(x1-x0)/nb-3,height:200-sy(v),fill:'var(--ochre)','fill-opacity':.8},svg)});
+ if(!grp){const q=Math.pow(2,bits-1)-1,d=Math.max(...w.map(Math.abs))/q;for(let k=-q;k<=q;k++){const v=k*d;if(v>=lo&&v<=hi)el('line',{x1:sx(v),x2:sx(v),y1:25,y2:200,class:'s-d'},svg)}}
+ el('path',{d:`M${x0} 200H${x1}`,class:'ax'},svg);[-.08,-.04,0,.04,.08].forEach(v=>text(svg,sx(v),216,fmt(v,2),'tick',{'text-anchor':'middle'}));
+ text(svg,330,244,'valeur du poids (bleu : original ; ocre : quantifié ; pointillés : niveaux)','axlabel',{'text-anchor':'middle'});
+ $('#qReadout').textContent=`Erreur relative ${fmt(100*Math.sqrt(num/den),1)} % · ${fmt(100*zeros/w.length,1)} % des poids arrondis à zéro`+(out&&!grp?' — la valeur aberrante (2,0, hors cadre) fixe le pas de tout le tenseur.':'');
+}
+$('#qBits').oninput=drawQuant;['qOutlier','qGroup'].forEach(id=>$('#'+id).onchange=drawQuant);drawQuant();
+
+// ---------- 6.8 · Température ----------
+const TCLS=['chat','tigre','lynx','chien','renard','voiture','camion','avion'],TLOG=[9,5.5,5,3,2.6,-1,-1.5,-2];
+function drawTemp(){const T=+$('#tT').value;$('#tTOut').textContent=fmt(T,1);const p=softmax(TLOG.map(z=>z/T));
+ const svg=$('#tempPlot');svg.innerHTML='';const x0=50,bw=70,base=185;
+ [0,.5,1].forEach(v=>{el('line',{x1:x0,x2:x0+bw*8,y1:base-160*v,y2:base-160*v,class:'gridline'},svg);text(svg,x0-6,base-160*v+4,fmt(v,1),'tick',{'text-anchor':'end'})});
+ p.forEach((v,i)=>{el('rect',{x:x0+i*bw+10,y:base-160*v,width:bw-20,height:160*v,fill:i<3?'var(--blue)':i<5?'var(--green)':'var(--ochre)','fill-opacity':.85},svg);text(svg,x0+i*bw+bw/2,base+16,TCLS[i],'tick',{'text-anchor':'middle'});text(svg,x0+i*bw+bw/2,base-160*v-6,fmt(100*v,v<.1?1:0)+' %','tick',{'text-anchor':'middle'})});
+ text(svg,x0+4*bw,222,'Probabilités du maître pour une image de chat : félins (bleu), autres animaux (vert), véhicules (ocre)','axlabel',{'text-anchor':'middle'});}
+$('#tT').oninput=drawTemp;drawTemp();
+
+// ---------- Atelier 1 · Préentraînement ----------
+(()=>{const t=plot($('#preCurve'),{w:640,h:280,x:[0,2450],y:[1.3,3.3],xticks:[0,500,1000,1500,2000],yticks:[1.5,2,2.5,3],xlabel:'mise à jour',ylabel:'entropie croisée (nat)',fmty:v=>fmt(v,1),
+ series:[{pts:[[0,1.86],[2450,1.86]],cls:'s-b'},{pts:[[0,1.52],[2450,1.52]],cls:'s-c'},{pts:[[0,1.475],[2450,1.475]],cls:'s-d'},{pts:R.pre,cls:'s-a'}]})})();
+
+// ---------- Atelier 2 · Stratégies et oubli ----------
+(()=>{const svg=$('#methodsPlot'),keys=Object.keys(NAMES);
+ const t=plot(svg,{w:640,h:300,x:[100,300000],y:[.4,1],xlog:true,xticks:[100,1000,10000,100000],yticks:[.4,.5,.6,.7,.8,.9,1],xlabel:'paramètres entraînés (échelle log)',ylabel:'accuracy test',fmtx:v=>v.toLocaleString('fr-FR'),fmty:v=>fmt(100*v,0)+' %',series:[]});
+ keys.forEach(k=>{const m=R.methods[k],a=m.acc,mu=a.reduce((x,y)=>x+y)/a.length,sd=Math.sqrt(a.reduce((x,y)=>x+(y-mu)**2,0)/a.length),x=t.tx(m.params)+(k==='scratch'?-8:k==='full'?8:0);
+  el('line',{x1:x,x2:x,y1:t.ty(mu-sd),y2:t.ty(mu+sd),stroke:NAMES[k][1],'stroke-width':2},svg);el('circle',{cx:x,cy:t.ty(mu),r:6,fill:NAMES[k][1]},svg);
+  const o={scratch:[-10,-10,'end'],probe:[10,-10,'start'],full:[-10,-14,'end'],'lora-1':[0,24,'middle'],'lora-4':[0,-14,'middle'],'lora-16':[0,24,'middle']}[k];text(svg,x+o[0],t.ty(mu)+o[1],NAMES[k][0]+' · '+fmt(100*mu,1)+' %','tick',{'text-anchor':o[2]})});})();
+(()=>{const svg=$('#forgetPlot');svg.setAttribute('viewBox','0 0 640 240');const f=R.forgetting,keys=Object.keys(f),labels={'préentraîné':'préentraîné','probe':'sonde linéaire','full':'ajustement complet','lora-4':'LoRA r = 4, actif','lora-4, adaptateurs retirés':'LoRA r = 4, B·A retiré'};
+ const x0=210,x1=600,max=3.6,sx=v=>x0+(x1-x0)*v/max;
+ keys.forEach((k,i)=>{const y=12+i*40,v=f[k];text(svg,x0-10,y+19,labels[k]||k,'tick',{'text-anchor':'end'});el('rect',{x:x0,y,width:sx(v)-x0,height:26,fill:k==='full'||k==='lora-4'?'var(--ochre)':'var(--blue)','fill-opacity':.8},svg);text(svg,sx(v)+6,y+18,fmt(v,3),'tick')});
+ el('line',{x1:sx(Math.log(24)),x2:sx(Math.log(24)),y1:8,y2:210,class:'s-d'},svg);text(svg,sx(Math.log(24)),226,'uniforme : log 24','tick',{'text-anchor':'middle'});})();
+
+// ---------- Atelier 3 · Efficacité en étiquettes ----------
+(()=>{const cols={scratch:['à partir de zéro','s-b','f-b','var(--ochre)'],probe:['sonde linéaire','s-c','f-c','var(--green)'],full:['ajustement complet','s-a','f-a','var(--blue)'],'lora-4':['LoRA r = 4','s-d','f-m','var(--muted)']};
+ plot($('#curvePlot'),{w:640,h:280,x:[12,1400],y:[.4,1],xlog:true,xticks:[16,64,256,1024],yticks:[.4,.5,.6,.7,.8,.9,1],xlabel:'exemples étiquetés',ylabel:'accuracy test',fmty:v=>fmt(100*v,0)+' %',series:Object.keys(cols).map(k=>({pts:R.curve[k],cls:cols[k][1],dots:cols[k][2]}))});
+ $('#curveLegend').innerHTML=Object.keys(cols).map(k=>`<span><i style="background:${cols[k][3]}"></i>${cols[k][0]}</span>`).join('');})();
+})();
+
+</script>
+</body></html>
