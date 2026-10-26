@@ -124,6 +124,8 @@ th{color:var(--accent);font-weight:650;background:color-mix(in srgb,var(--surfac
 .chapter .rail{border-color:color-mix(in srgb,var(--accent) 24%,transparent);background:color-mix(in srgb,var(--accent) 10%,var(--tint))}
 .chapter.active .rail,.chapter .rail:hover{background:color-mix(in srgb,var(--accent) 17%,var(--tint))}
 .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.actions a.colab{display:inline-flex;align-items:center;min-height:36px;padding:5px 10px;border:1px dashed color-mix(in srgb,var(--accent) 55%,var(--tint));border-radius:5px;color:var(--accent);text-decoration:none}
+.actions a.colab:hover{border-style:solid;border-color:var(--accent)}
 .lab{padding:23px;margin:22px 0}
 .labhead{display:flex;justify-content:space-between;gap:10px;margin-bottom:15px;font-size:13px;color:var(--accent)}
 .lab>svg{width:100%;height:auto;display:block}

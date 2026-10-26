@@ -52,6 +52,9 @@ $$('[data-phases]').forEach(group=>{
 });
 function download(name,type,text){const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 $$('[data-notebook]').forEach(b=>b.onclick=()=>{const nb=JSON.parse($('#notebooks').textContent)[b.dataset.notebook];download(b.dataset.file,'application/x-ipynb+json',JSON.stringify(nb,null,1))});
+// Notebook à compléter : ouverture directe dans Colab (copie exportée dans notebooks/ par tools/export_notebooks.py)
+const COLAB='https://colab.research.google.com/github/benlahmar/deeplearning/blob/main/notebooks/';
+$$('[data-notebook="starter"]').forEach(b=>{const a=document.createElement('a');Object.assign(a,{className:'colab',href:COLAB+b.dataset.file,target:'_blank',rel:'noopener'});a.textContent='Ouvrir dans Colab ↗';b.after(a)});
 if($('#exportNotes'))$('#exportNotes').onclick=()=>download(`Notes_${page}.txt`,'text/plain;charset=utf-8',document.title+' — Notes personnelles\n\n'+$$('textarea[data-note]').map(el=>{const l=document.querySelector(`label[for="${el.id}"]`);return (l?l.textContent:el.id)+'\n'+(el.value||'(non renseigné)')}).join('\n\n')+'\n\n'+($('#progressText')?$('#progressText').textContent:''));
 
 // ---------- Volets : un seul ouvert, adresse synchronisée, recherche dans les volets fermés ----------

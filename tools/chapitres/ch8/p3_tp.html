@@ -1,0 +1,55 @@
+
+<!-- ============================== TP ============================== -->
+<section class="chapter tp" id="tp"><button type="button" class="rail" id="rail-2" aria-controls="panel-2" aria-expanded="false"><span class="num">03</span><span class="rail-word">TP · Ateliers</span><span class="rail-symbol" aria-hidden="true">+</span></button>
+<div class="content" id="panel-2" role="region" aria-labelledby="rail-2">
+<div class="section-banner"><div class="banner-copy"><div class="tag">Expérimenter</div><strong>Trois générateurs, une même densité.</strong><p>Énergie et Langevin, score débruité, diffusion — puis un séminaire de lecture critique.</p><button type="button" class="banner-toggle" aria-pressed="false">Mettre l’animation en pause</button></div>
+<div class="banner-art" aria-hidden="true"><svg viewBox="0 0 270 135"><path class="wire" d="M15 10V120H250"/><path class="loss-path" d="M20 20 C60 15 55 90 100 76 S150 115 230 109"/><circle class="loss-point" r="5" cx="0" cy="0"/><text class="svgtext" x="220" y="29">E(x)</text></svg></div></div>
+<article class="reading">
+<div class="tag">Chapitre 8 / Ateliers Jupyter · 1 h encadrée + autonomie + séminaire</div><h3>Apprendre une densité que l’on connaît, pour juger chaque méthode.</h3>
+<p><strong>Mission :</strong> sur une densité 2D connue — huit gaussiennes sur un cercle —, entraîner un modèle à énergie par maximum de vraisemblance, un modèle de score débruité et un modèle de diffusion, puis les comparer avec deux mesures : <em>qualité</em> (part des échantillons à moins de \(3\sigma\) d’un mode) et <em>couverture</em> (modes représentés). Deux contre-expériences testent les affirmations du cours. Tout tourne sur CPU en ≈ 3 min.</p>
+<div class="actions"><button class="action" data-notebook="complete" data-file="Chapitre_8_Atelier_Corrige.ipynb">Notebook corrigé</button><button data-notebook="starter" data-file="Chapitre_8_Atelier_A_Completer.ipynb">Notebook à compléter</button><button id="exportNotes">Exporter mes notes</button></div>
+<p class="small">PyTorch CPU, Matplotlib. La version à compléter laisse à écrire la dynamique de Langevin, la cible du score matching débruité et un pas d’échantillonnage DDPM.</p>
+<div class="steps" data-phases="tp" aria-label="Ateliers"><button data-phase-of="tp" data-phase="0">1 · Énergie et Langevin</button><button data-phase-of="tp" data-phase="1">2 · Score et diffusion</button><button data-phase-of="tp" data-phase="2">3 · Contre-expériences</button><button data-phase-of="tp" data-phase="3">4 · Séminaire d’articles</button></div>
+
+<section class="phase" data-group="tp" id="lab1"><div class="tag">Atelier 1 · 25 min</div><h3>Un modèle à énergie appris par vraisemblance.</h3>
+<p>L’énergie est un petit MLP à activations SiLU (lisses, pour que le gradient en \(x\) soit utile). Les négatifs sont produits par 30 pas de Langevin à partir d’un tampon persistant (Du et Mordatch, 2019) ; un petit terme \(\alpha(E_+^2+E_-^2)\) borne les énergies.</p>
+<details class="reveal"><summary>Cellule 1 · Imports</summary><div class="answer"><pre class="code"><code>@@C1@@</code></pre></div></details>
+<details class="reveal"><summary>Cellule 2 · La densité et les mesures</summary><div class="answer"><pre class="code"><code>@@C2@@</code></pre></div></details>
+<details class="reveal"><summary>Cellule 3 · Énergie, Langevin, entraînement</summary><div class="answer"><pre class="code"><code>@@C3@@</code></pre></div></details>
+<figure class="fig" id="fig-ebm"><div class="fig-row"><svg id="ebmEnergy" role="img" aria-label="Énergie apprise et échantillons de Langevin"></svg><svg id="ebmHist" role="img" aria-label="Énergie moyenne des données et des négatifs pendant l’entraînement"></svg></div>
+<figcaption><b>Fig. 8.3 —</b> Résultats réels. À gauche, l’énergie apprise (bleu : énergie basse, blanc : haute) et 400 échantillons de Langevin : l’énergie est basse sur tout l’anneau et minimale autour des huit modes, ce qui explique les quelques échantillons entre deux modes. À droite, l’énergie moyenne des données (bleu) et des négatifs (ocre) : les deux phases se répondent sans diverger ; l’écart reste borné grâce au terme \(\alpha(E_+^2+E_-^2)\), sans lequel les énergies dériveraient.</figcaption></figure>
+<label for="note1" class="small">L’écart entre les deux courbes ne s’annule pas : est-ce un échec ? Que mesurerait un écart nul ?</label><textarea id="note1" data-note placeholder="Quand les négatifs ressemblent aux données…"></textarea>
+<button class="action" data-phase-of="tp" data-phase="1">Atelier 2 →</button></section>
+
+<section class="phase" data-group="tp" id="lab2"><div class="tag">Atelier 2 · 25 min</div><h3>Apprendre le score, puis le bruit.</h3>
+<details class="reveal"><summary>Cellule 4 · Score matching débruité, Langevin recuit</summary><div class="answer"><pre class="code"><code>@@C4@@</code></pre></div></details>
+<details class="reveal"><summary>Cellule 5 · Diffusion (DDPM)</summary><div class="answer"><pre class="code"><code>@@C5@@</code></pre></div></details>
+<p>Le processus inverse de la diffusion est tracé dans la figure 8.2 du cours. Comparez le nombre d’évaluations du réseau par échantillon : 200 pour DDPM, 1 000 pour le Langevin recuit (10 niveaux × 100 pas), 300 pour l’EBM — mais chacune avec un calcul de gradient par rétropropagation, soit environ trois fois plus cher.</p>
+<label class="check"><input type="checkbox" data-done="tp"> J’ai entraîné les trois générateurs et relié la prédiction du bruit au score.</label>
+<button class="action" data-phase-of="tp" data-phase="2">Atelier 3 →</button></section>
+
+<section class="phase" data-group="tp" id="lab3"><div class="tag">Atelier 3 · 15 min</div><h3>Deux affirmations du cours, mises à l’épreuve.</h3>
+<p>(1) « Sans bruit, Langevin infère au lieu d’échantillonner. » (2) « Un score appris à un seul petit niveau de bruit échoue loin des données. » Prédisez la qualité, la couverture et la dispersion avant d’exécuter.</p>
+<details class="reveal"><summary>Cellule 6 · Contre-expériences et tableau final</summary><div class="answer"><pre class="code"><code>@@C6@@</code></pre></div></details>
+<figure class="fig" id="fig-compare"><svg id="comparePlot" role="img" aria-label="Échantillons de six méthodes"></svg>
+<div class="kpis" id="compareKpis"></div>
+<figcaption><b>Fig. 8.4 —</b> Résultats réels, 400 échantillons par panneau. La descente sans bruit atteint 100 % de « qualité » avec une dispersion de 0,015 au lieu de 0,15 : tous les points sont au fond des puits, aucune variabilité. Le score appris à un seul \(\sigma\) laisse 59 % des échantillons errer loin des modes, là où il n’a jamais vu de données. Le recuit et la diffusion corrigent ce défaut. Une seule mesure (la qualité) aurait classé la pire méthode en tête.</figcaption></figure>
+<button class="action" data-phase-of="tp" data-phase="3">Séminaire →</button></section>
+
+<section class="phase" data-group="tp" id="lab4"><div class="tag">Atelier 4 · Séminaire d’analyse d’articles · évaluation finale</div><h3>Lire, reproduire en petit, critiquer.</h3>
+<p>Par binôme, choisir un article, le lire avec la grille de la section 8.10, reproduire en miniature une de ses affirmations avec les outils du module (données synthétiques ou <code>digits</code>, CPU), et présenter en 15 minutes : l’affirmation, la preuve, votre reproduction, et la limite que l’article ne discute pas.</p>
+<div class="table-scroll"><table><thead><tr><th>Article</th><th>Affirmation à tester en miniature</th><th>Lien</th></tr></thead><tbody>
+<tr><td>Du et Mordatch (2019)</td><td>Un tampon de rejouage stabilise l’apprentissage d’un EBM</td><td>Atelier 1, ch. 8</td></tr>
+<tr><td>Song et Ermon (2019)</td><td>Plusieurs niveaux de bruit sont nécessaires pour échantillonner</td><td>Atelier 3, ch. 8</td></tr>
+<tr><td>Ho et al. (2020)</td><td>Prédire le bruit est plus stable que prédire la moyenne</td><td>Atelier 2, ch. 8</td></tr>
+<tr><td>Kumar et al. (2022)</td><td>LP-FT réduit la distorsion des représentations</td><td>Atelier 2, ch. 6</td></tr>
+<tr><td>Bardes et al. (2022), VICReg</td><td>Le terme de covariance limite l’effondrement dimensionnel</td><td>Atelier 2, ch. 7</td></tr>
+<tr><td>Assran et al. (2023), I-JEPA</td><td>Prédire en latent rend inutiles les augmentations manuelles</td><td>Atelier 3, ch. 7</td></tr>
+<tr><td>Haviv et al. (2022)</td><td>Un décodeur causal sans position apprend la position</td><td>Prolongement, ch. 5</td></tr>
+<tr><td>Hoffmann et al. (2022)</td><td>À calcul fixé, modèle et données doivent croître ensemble</td><td>Laboratoire, ch. 6</td></tr></tbody></table></div>
+<div class="callout"><div class="tag">Livrable final · Note critique de 4 pages + présentation</div><ol><li>L’affirmation, son périmètre et la preuve apportée par les auteurs (grille 8.10).</li><li>Votre reproduction miniature : protocole, références, graines, résultats.</li><li>Ce qui est confirmé, ce qui ne l’est pas, et pourquoi (échelle, hypothèses, mesures).</li><li>Une expérience qui pourrait réfuter l’affirmation, et ce qu’elle coûterait.</li></ol><p>Barème : compréhension de l’article 25 % ; protocole de reproduction 25 % ; honnêteté de l’analyse 30 % ; présentation 20 %.</p></div>
+<p id="notesStatus" class="small" role="status">Vos notes sont enregistrées dans ce navigateur et peuvent être exportées.</p>
+<p class="small">Validation du support : toutes les cellules ont été exécutées (PyTorch 2.x, CPU) ; les figures de ce volet et la figure 8.2 en reprennent les sorties.</p></section>
+<nav class="chapter-nav" aria-label="Chapitres"><a href="Chapitre_7_SSL_JEPA.html">← Chapitre 7 · Auto-supervision et JEPA</a><a href="index.html#programme">Programme du cours</a></nav>
+</article></div></section>
+</div></main>

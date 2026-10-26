@@ -1,0 +1,8 @@
+# Ateliers Jupyter du cours (chapitres 1 à 8) — tout tourne sur CPU.
+# PyTorch CPU seul, plus léger :
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch>=2.1
+numpy>=1.24
+matplotlib>=3.7
+scikit-learn>=1.3   # chapitre 7 (jeu de données digits, inclus dans la bibliothèque)
+jupyterlab>=4.0
